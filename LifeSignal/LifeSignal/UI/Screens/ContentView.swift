@@ -5,6 +5,7 @@ import UIKit
 /// The main content view of the app
 struct ContentView: View {
     @EnvironmentObject private var userViewModel: UserViewModel
+    @EnvironmentObject private var appState: AppState
     @State private var selectedTab = 0
 
     var body: some View {
@@ -78,5 +79,6 @@ struct ContentView: View {
 #Preview {
     ContentView()
         .environmentObject(UserViewModel())
+        .environmentObject(AppState())
 }
 

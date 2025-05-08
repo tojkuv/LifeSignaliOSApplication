@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import FirebaseFirestore
 
 /// ViewModel for managing user data and contacts
 class UserViewModel: ObservableObject {
@@ -54,6 +55,9 @@ class UserViewModel: ObservableObject {
     /// Alert toggle state for HomeView
     @Published var sendAlertActive: Bool = false
 
+    /// Flag indicating if user data has been loaded from Firestore
+    @Published var isDataLoaded: Bool = false
+
     // MARK: - Computed Properties
 
     /// Date when the user's check-in expires
@@ -80,6 +84,124 @@ class UserViewModel: ObservableObject {
         DispatchQueue.main.async {
             self.updateNonResponsiveDependentsCount()
             self.updatePendingPingsCount()
+        }
+    }
+
+    // MARK: - Firestore Integration
+
+    /// Load user data from Firestore
+    /// - Parameter completion: Optional callback when data is loaded
+    func loadUserData(completion: ((Bool) -> Void)? = nil) {
+        guard let userId = AuthenticationService.shared.getCurrentUserID() else {
+            print("Cannot load user data: No authenticated user")
+            completion?(false)
+            return
+        }
+
+        UserService.shared.getCurrentUserData { [weak self] userData, error in
+            guard let self = self else { return }
+
+            if let error = error {
+                print("Error loading user data: \(error.localizedDescription)")
+                completion?(false)
+                return
+            }
+
+            if let userData = userData {
+                self.updateFromFirestore(userData: userData)
+                completion?(true)
+            } else {
+                print("No user data found")
+                completion?(false)
+            }
+        }
+    }
+
+    /// Update the view model with data from Firestore
+    /// - Parameter userData: The user data from Firestore
+    func updateFromFirestore(userData: [String: Any]) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            // Update basic user information
+            if let name = userData["name"] as? String {
+                self.name = name
+            }
+
+            if let phone = userData["phoneNumber"] as? String {
+                self.phone = phone
+            }
+
+            if let qrCodeId = userData["qrCodeId"] as? String {
+                self.qrCodeId = qrCodeId
+            }
+
+            if let note = userData["note"] as? String {
+                self.profileDescription = note
+            }
+
+            // Update check-in related data
+            if let checkInInterval = userData["checkInInterval"] as? TimeInterval {
+                self.checkInInterval = checkInInterval
+            }
+
+            if let lastCheckedInTimestamp = userData["lastCheckedIn"] as? Timestamp {
+                self.lastCheckedIn = lastCheckedInTimestamp.dateValue()
+            }
+
+            // Update notification preferences
+            if let notify30Min = userData["notify30MinBefore"] as? Bool, notify30Min {
+                self.notificationLeadTime = 30
+            } else if let notify2Hours = userData["notify2HoursBefore"] as? Bool, notify2Hours {
+                self.notificationLeadTime = 120
+            }
+
+            // Mark data as loaded
+            self.isDataLoaded = true
+
+            print("User data updated from Firestore")
+        }
+    }
+
+    /// Save user data to Firestore
+    /// - Parameters:
+    ///   - data: Additional data to save
+    ///   - completion: Optional callback with success flag and error
+    func saveUserData(additionalData: [String: Any]? = nil, completion: ((Bool, Error?) -> Void)? = nil) {
+        guard AuthenticationService.shared.isAuthenticated else {
+            completion?(false, NSError(domain: "UserViewModel", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"]))
+            return
+        }
+
+        // Create base user data
+        var userData: [String: Any] = [
+            "name": name,
+            "note": profileDescription,
+            "qrCodeId": qrCodeId,
+            "checkInInterval": checkInInterval,
+            "lastCheckedIn": lastCheckedIn,
+            "notify30MinBefore": notificationLeadTime == 30,
+            "notify2HoursBefore": notificationLeadTime == 120,
+            "lastUpdated": FieldValue.serverTimestamp()
+        ]
+
+        // Add any additional data
+        if let additionalData = additionalData {
+            for (key, value) in additionalData {
+                userData[key] = value
+            }
+        }
+
+        // Save to Firestore
+        UserService.shared.updateCurrentUserData(data: userData) { success, error in
+            if let error = error {
+                print("Error saving user data: \(error.localizedDescription)")
+                completion?(false, error)
+                return
+            }
+
+            print("User data saved to Firestore")
+            completion?(true, nil)
         }
     }
 

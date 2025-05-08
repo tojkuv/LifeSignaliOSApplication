@@ -1,12 +1,22 @@
 import UIKit
 import FirebaseCore
 import FirebaseAuth
+import FirebaseFirestore
 
 class AppDelegate: NSObject, UIApplicationDelegate {
+    // Session listener for Firebase
+    var sessionListener: ListenerRegistration?
+
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
         // Initialize Firebase
         FirebaseService.shared.configure()
         return true
+    }
+
+    /// Remove the session listener
+    func removeSessionListener() {
+        sessionListener?.remove()
+        sessionListener = nil
     }
 
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {

@@ -1,9 +1,12 @@
 import SwiftUI
 import Foundation
 import FirebaseCore
+import FirebaseAuth
 
 struct ProfileView: View {
     @EnvironmentObject private var userViewModel: UserViewModel
+    @Environment(\.presentationMode) private var presentationMode
+    @EnvironmentObject private var appState: AppState
     @State private var showEditPhoneSheet = false
     @State private var newPhone = ""
     @State private var showSignOutConfirmation = false
@@ -207,7 +210,7 @@ struct ProfileView: View {
                 title: Text("Sign Out"),
                 message: Text("Are you sure you want to sign out?"),
                 primaryButton: .destructive(Text("Sign Out")) {
-                    print("User signed out")
+                    appState.signOut()
                 },
                 secondaryButton: .cancel()
             )
