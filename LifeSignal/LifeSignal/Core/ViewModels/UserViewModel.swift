@@ -572,6 +572,58 @@ class UserViewModel: ObservableObject {
         }
     }
 
+    /// Updates the user's name in Firestore
+    /// - Parameters:
+    ///   - newName: The new name to set
+    ///   - completion: Optional callback with success flag and error
+    func updateName(_ newName: String, completion: ((Bool, Error?) -> Void)? = nil) {
+        // Update local property
+        name = newName
+
+        // Save to Firestore
+        let updateData: [String: Any] = [
+            FirestoreSchema.User.name: newName,
+            FirestoreSchema.User.lastUpdated: FieldValue.serverTimestamp()
+        ]
+
+        UserService.shared.updateCurrentUserData(data: updateData) { success, error in
+            if let error = error {
+                print("Error updating name in Firestore: \(error.localizedDescription)")
+                completion?(false, error)
+                return
+            }
+
+            print("Name updated in Firestore")
+            completion?(true, nil)
+        }
+    }
+
+    /// Updates the user's emergency note in Firestore
+    /// - Parameters:
+    ///   - newNote: The new emergency note to set
+    ///   - completion: Optional callback with success flag and error
+    func updateEmergencyNote(_ newNote: String, completion: ((Bool, Error?) -> Void)? = nil) {
+        // Update local property
+        profileDescription = newNote
+
+        // Save to Firestore
+        let updateData: [String: Any] = [
+            FirestoreSchema.User.note: newNote,
+            FirestoreSchema.User.lastUpdated: FieldValue.serverTimestamp()
+        ]
+
+        UserService.shared.updateCurrentUserData(data: updateData) { success, error in
+            if let error = error {
+                print("Error updating emergency note in Firestore: \(error.localizedDescription)")
+                completion?(false, error)
+                return
+            }
+
+            print("Emergency note updated in Firestore")
+            completion?(true, nil)
+        }
+    }
+
     // MARK: - Contact Management
 
     /// Adds a new contact with the given QR code ID and role

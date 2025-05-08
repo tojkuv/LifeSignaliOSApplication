@@ -243,7 +243,13 @@ struct ProfileView: View {
                         showEditDescriptionSheet = false
                     },
                     trailing: Button("Save") {
-                        userViewModel.profileDescription = newDescription
+                        // Use the new updateEmergencyNote method to persist to Firestore
+                        userViewModel.updateEmergencyNote(newDescription) { success, error in
+                            if let error = error {
+                                print("Error updating emergency note: \(error.localizedDescription)")
+                                // Could show an alert here if needed
+                            }
+                        }
                         showEditDescriptionSheet = false
                     }
                     .disabled(newDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newDescription == userViewModel.profileDescription)
@@ -278,7 +284,13 @@ struct ProfileView: View {
                         showEditNameSheet = false
                     },
                     trailing: Button("Save") {
-                        userViewModel.name = newName
+                        // Use the new updateName method to persist to Firestore
+                        userViewModel.updateName(newName) { success, error in
+                            if let error = error {
+                                print("Error updating name: \(error.localizedDescription)")
+                                // Could show an alert here if needed
+                            }
+                        }
                         showEditNameSheet = false
                     }
                     .disabled(newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newName == userViewModel.name)
