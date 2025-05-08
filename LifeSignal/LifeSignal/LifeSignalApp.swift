@@ -1,4 +1,5 @@
 import SwiftUI
+import FirebaseCore
 
 @main
 struct LifeSignalApp: App {
@@ -10,7 +11,7 @@ struct LifeSignalApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            FirebaseTestView()
                 .environmentObject(userViewModel)
         }
     }

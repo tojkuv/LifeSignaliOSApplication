@@ -49,7 +49,7 @@ class UserViewModel: ObservableObject {
     @Published var pendingPingsCount: Int = 0
 
     /// User's emergency profile description
-    @Published var profileDescription: String = "I have a severe peanut allergy - EpiPen is always in my backpack's front pocket. If I'm unresponsive, call my sister Alice first at 555-111-0001. I usually hike at Redwood Trail on weekends. My car is a silver Toyota Prius (license plate ABC-123). I live alone in apartment 4B at 123 Main Street. Building manager has spare key (555-222-3333). Medical info: Blood type O+, no medications except occasional ibuprofen for headaches."
+    @Published var profileDescription: String = "I have a severe peanut allergy - EpiPen is always in my backpack's front pocket."
 
     /// Alert toggle state for HomeView
     @Published var sendAlertActive: Bool = false
