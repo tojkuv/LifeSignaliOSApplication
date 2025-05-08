@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import FirebaseCore
 
 struct ProfileView: View {
     @EnvironmentObject private var userViewModel: UserViewModel
@@ -105,6 +106,24 @@ struct ProfileView: View {
                         Text("Change Phone Number")
                             .font(.body)
                             .foregroundColor(.green)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 12)
+                    .padding(.horizontal)
+                    .background(Color(UIColor.systemGray5))
+                    .cornerRadius(12)
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 8)
+
+                // Firebase Test Card
+                NavigationLink(destination: FirebaseTestView()) {
+                    HStack {
+                        Text("Firebase Test")
+                            .font(.body)
+                            .foregroundColor(.blue)
                         Spacer()
                         Image(systemName: "chevron.right")
                             .foregroundColor(.secondary)

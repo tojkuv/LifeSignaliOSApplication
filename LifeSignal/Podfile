@@ -1,0 +1,26 @@
+# Uncomment the next line to define a global platform for your project
+platform :ios, '17.0'
+
+target 'LifeSignal' do
+  # Comment the next line if you don't want to use dynamic frameworks
+  use_frameworks!
+
+  # Firebase
+  pod 'FirebaseCore'
+  pod 'FirebaseFirestore'
+
+  # Add other Firebase pods as needed
+  # pod 'FirebaseAuth'
+  # pod 'FirebaseStorage'
+  # pod 'FirebaseMessaging'
+
+  target 'LifeSignalTests' do
+    inherit! :search_paths
+    # Pods for testing
+  end
+
+  target 'LifeSignalUITests' do
+    # Pods for testing
+  end
+
+end
