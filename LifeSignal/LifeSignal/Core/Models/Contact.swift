@@ -20,8 +20,8 @@ struct Contact: Identifiable, Codable, Equatable {
     /// Note associated with the contact
     var note: String
 
-    /// Optional QR code identifier
-    var qrCodeId: String?
+    /// Optional QR code identifier (only used for lookup, not stored)
+    var qrCodeId: String? = nil
 
     /// True if the contact is a responder
     var isResponder: Bool

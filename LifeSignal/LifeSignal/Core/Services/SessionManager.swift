@@ -53,19 +53,126 @@ class SessionManager {
         // Save locally first
         saveSessionId(sessionId)
 
-        // Update in Firestore
-        db.collection("users").document(userId).updateData([
-            "sessionId": sessionId,
-            "lastSignInTime": FieldValue.serverTimestamp()
-        ]) { error in
+        // Reference to the user document
+        let userDocRef = db.collection("users").document(userId)
+
+        // First check if the document exists
+        userDocRef.getDocument { [weak self] document, error in
+            guard let self = self else { return }
+
             if let error = error {
-                print("Error updating session in Firestore: \(error.localizedDescription)")
+                print("Error checking user document: \(error.localizedDescription)")
                 completion(false, error)
                 return
             }
 
-            print("Session updated successfully for user: \(userId)")
-            completion(true, nil)
+            // Session data to update or create
+            let sessionData: [String: Any] = [
+                "sessionId": sessionId,
+                "lastSignInTime": FieldValue.serverTimestamp()
+            ]
+
+            if let document = document, document.exists {
+                // Document exists, update it
+                print("User document exists, updating session data")
+
+                // For test users, use setData with merge to ensure all fields are preserved
+                if let phoneNumber = Auth.auth().currentUser?.phoneNumber,
+                   phoneNumber == "+11234567890" || phoneNumber == "+16505553434" {
+                    print("This is a test user, using setData with merge")
+                    userDocRef.setData(sessionData, merge: true) { error in
+                        if let error = error {
+                            print("Error updating session in Firestore: \(error.localizedDescription)")
+
+                            // Check if it's a permission error
+                            if let nsError = error as NSError?, nsError.domain == "FIRFirestoreErrorDomain" {
+                                print("Firestore error code: \(nsError.code)")
+                                print("Firestore error details: \(nsError.userInfo)")
+                            }
+
+                            completion(false, error)
+                            return
+                        }
+
+                        print("Session updated successfully for existing test user: \(userId)")
+                        completion(true, nil)
+                    }
+                } else {
+                    // Regular user, use updateData
+                    userDocRef.updateData(sessionData) { error in
+                        if let error = error {
+                            print("Error updating session in Firestore: \(error.localizedDescription)")
+
+                            // Check if it's a permission error
+                            if let nsError = error as NSError?, nsError.domain == "FIRFirestoreErrorDomain" {
+                                print("Firestore error code: \(nsError.code)")
+                                print("Firestore error details: \(nsError.userInfo)")
+                            }
+
+                            completion(false, error)
+                            return
+                        }
+
+                        print("Session updated successfully for existing user: \(userId)")
+                        completion(true, nil)
+                    }
+                }
+            } else {
+                // Document doesn't exist, create it with basic user data
+                var userData = sessionData
+
+                // Add additional required fields for a new user
+                userData["uid"] = userId
+                userData["createdAt"] = FieldValue.serverTimestamp()
+                userData["profileComplete"] = false
+
+                // Generate a QR code ID for the new user - CRITICAL FIELD
+                let qrCodeId = UUID().uuidString
+                userData["qrCodeId"] = qrCodeId
+                print("Generated QR code ID for new user: \(qrCodeId)")
+
+                // Add phone number if available
+                if let phoneNumber = Auth.auth().currentUser?.phoneNumber {
+                    userData["phoneNumber"] = phoneNumber
+                } else {
+                    userData["phoneNumber"] = "" // Required field
+                }
+
+                // Add required fields according to Firestore rules
+                userData["name"] = "New User" // Required field
+                userData["note"] = "" // Required field
+                userData["checkInInterval"] = 24 * 60 * 60 // 24 hours in seconds
+                userData["lastCheckedIn"] = FieldValue.serverTimestamp()
+
+                // Initialize other fields with default values
+                userData["notificationEnabled"] = true
+                userData["notify30MinBefore"] = false
+                userData["notify2HoursBefore"] = false
+                userData["manualAlertActive"] = false
+                userData["contacts"] = []
+
+                // Log the data we're about to save
+                print("Creating new user document with fields: \(userData.keys.joined(separator: ", "))")
+
+                // Create the document
+                userDocRef.setData(userData) { error in
+                    if let error = error {
+                        print("Error creating user document: \(error.localizedDescription)")
+
+                        // Check if it's a permission error
+                        if let nsError = error as NSError?, nsError.domain == "FIRFirestoreErrorDomain" {
+                            print("Firestore error code: \(nsError.code)")
+                            print("Firestore error details: \(nsError.userInfo)")
+                        }
+
+                        completion(false, error)
+                        return
+                    }
+
+                    print("Created new user document with session for user: \(userId)")
+                    completion(true, nil)
+                }
+            }
         }
     }
 

@@ -12,6 +12,7 @@
 		988BA9792DCC5E3A00024FD8 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 988BA9782DCC5E3A00024FD8 /* FirebaseCore */; };
 		988BA97B2DCC5E3A00024FD8 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 988BA97A2DCC5E3A00024FD8 /* FirebaseFirestore */; };
 		98A78FA72DCD665500964DEC /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 98A78FA62DCD665500964DEC /* FirebaseMessaging */; };
+		98A78FAB2DCD709600964DEC /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = 98A78FAA2DCD709600964DEC /* FirebaseFunctions */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -76,6 +77,7 @@
 				988BA9752DCC5E3A00024FD8 /* FirebaseAppCheck in Frameworks */,
 				988BA97B2DCC5E3A00024FD8 /* FirebaseFirestore in Frameworks */,
 				98A78FA72DCD665500964DEC /* FirebaseMessaging in Frameworks */,
+				98A78FAB2DCD709600964DEC /* FirebaseFunctions in Frameworks */,
 				988BA9792DCC5E3A00024FD8 /* FirebaseCore in Frameworks */,
 				988BA9772DCC5E3A00024FD8 /* FirebaseAuth in Frameworks */,
 			);
@@ -143,6 +145,7 @@
 				988BA9782DCC5E3A00024FD8 /* FirebaseCore */,
 				988BA97A2DCC5E3A00024FD8 /* FirebaseFirestore */,
 				98A78FA62DCD665500964DEC /* FirebaseMessaging */,
+				98A78FAA2DCD709600964DEC /* FirebaseFunctions */,
 			);
 			productName = LifeSignal;
 			productReference = 988BA1A52DCB131200024FD8 /* LifeSignal.app */;
@@ -641,6 +644,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 988BA9732DCC5E3A00024FD8 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseMessaging;
+		};
+		98A78FAA2DCD709600964DEC /* FirebaseFunctions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 988BA9732DCC5E3A00024FD8 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFunctions;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -34,9 +34,12 @@ class UserService {
     /// - Parameter completion: Callback with user data and error
     func getCurrentUserData(completion: @escaping ([String: Any]?, Error?) -> Void) {
         guard let userDoc = getCurrentUserDocument() else {
+            print("getCurrentUserData: User not authenticated")
             completion(nil, NSError(domain: "UserService", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"]))
             return
         }
+
+        print("Getting user data for document: \(userDoc.documentID)")
 
         userDoc.getDocument { document, error in
             if let error = error {
@@ -46,11 +49,63 @@ class UserService {
             }
 
             guard let document = document, document.exists else {
-                print("User document does not exist")
+                print("User document does not exist for ID: \(userDoc.documentID)")
+
+                // For new users, we'll create a basic document
+                if let phoneNumber = Auth.auth().currentUser?.phoneNumber {
+                    print("Creating basic document for new user with phone: \(phoneNumber)")
+
+                    // Generate a QR code ID for the new user - CRITICAL FIELD
+                    let qrCodeId = UUID().uuidString
+                    print("Generated QR code ID for new user: \(qrCodeId)")
+
+                    let userData: [String: Any] = [
+                        "uid": userDoc.documentID,
+                        "phoneNumber": phoneNumber,
+                        "createdAt": FieldValue.serverTimestamp(),
+                        "lastSignInTime": FieldValue.serverTimestamp(),
+                        "profileComplete": false,
+                        "qrCodeId": qrCodeId,
+                        "name": "New User", // Required field
+                        "note": "", // Required field
+                        "checkInInterval": 24 * 60 * 60, // 24 hours in seconds
+                        "lastCheckedIn": FieldValue.serverTimestamp(),
+                        // Initialize other fields with default values
+                        "notificationEnabled": true,
+                        "notify30MinBefore": false,
+                        "notify2HoursBefore": false,
+                        "manualAlertActive": false,
+                        "contacts": []
+                    ]
+
+                    // Log the data we're about to save
+                    print("Creating basic user document with fields: \(userData.keys.joined(separator: ", "))")
+
+                    // Use setData with merge option to ensure we don't overwrite existing fields
+                    userDoc.setData(userData, merge: true) { error in
+                        if let error = error {
+                            print("Error creating basic user document: \(error.localizedDescription)")
+
+                            // Check if it's a permission error
+                            if let nsError = error as NSError?, nsError.domain == "FIRFirestoreErrorDomain" {
+                                print("Firestore error code: \(nsError.code)")
+                                print("Firestore error details: \(nsError.userInfo)")
+                            }
+
+                            completion(nil, NSError(domain: "UserService", code: 500, userInfo: [NSLocalizedDescriptionKey: "Failed to create user document: \(error.localizedDescription)"]))
+                        } else {
+                            print("Created basic user document for new user")
+                            completion(userData, nil)
+                        }
+                    }
+                    return
+                }
+
                 completion(nil, NSError(domain: "UserService", code: 404, userInfo: [NSLocalizedDescriptionKey: "User document not found"]))
                 return
             }
 
+            print("Found user document with data")
             completion(document.data(), nil)
         }
     }
@@ -164,20 +219,34 @@ class UserService {
     /// Create the test user document if it doesn't exist
     /// - Parameter completion: Callback with success flag and error
     func createTestUserIfNeeded(completion: @escaping (Bool, Error?) -> Void) {
-        let testUserId = "Jkp4pSeWl9ZIT9t0tMUdR3dCu2w2"
-        let testUserDoc = usersCollection.document(testUserId)
-
-        // Check if the user is authenticated
-        guard AuthenticationService.shared.isAuthenticated else {
+        // Get current user ID
+        guard let currentUserId = AuthenticationService.shared.getCurrentUserID() else {
+            print("createTestUserIfNeeded: User not authenticated")
             completion(false, NSError(domain: "UserService", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"]))
             return
         }
 
-        // Check if the current user is the test user
-        guard AuthenticationService.shared.getCurrentUserID() == testUserId else {
-            completion(false, NSError(domain: "UserService", code: 403, userInfo: [NSLocalizedDescriptionKey: "Only the test user can create their own document"]))
+        // Get current user phone number
+        guard let phoneNumber = Auth.auth().currentUser?.phoneNumber else {
+            print("createTestUserIfNeeded: Phone number not available")
+            completion(false, NSError(domain: "UserService", code: 400, userInfo: [NSLocalizedDescriptionKey: "Phone number not available"]))
             return
         }
+
+        print("Creating test user for phone: \(phoneNumber), user ID: \(currentUserId)")
+
+        // Determine which test user this is
+        let isFirstTestUser = phoneNumber == "+11234567890"
+        let isSecondTestUser = phoneNumber == "+16505553434"
+
+        // Only proceed for known test users
+        guard isFirstTestUser || isSecondTestUser else {
+            print("createTestUserIfNeeded: Not a recognized test user: \(phoneNumber)")
+            completion(false, NSError(domain: "UserService", code: 403, userInfo: [NSLocalizedDescriptionKey: "Not a recognized test user"]))
+            return
+        }
+
+        let testUserDoc = usersCollection.document(currentUserId)
 
         testUserDoc.getDocument { document, error in
             if let error = error {
@@ -188,32 +257,68 @@ class UserService {
 
             if let document = document, document.exists {
                 // Document already exists
-                print("Test user document already exists")
+                print("Test user document already exists for \(phoneNumber)")
                 completion(true, nil)
                 return
             }
 
-            // Document doesn't exist, create it
-            let userData: [String: Any] = [
-                "uid": testUserId,
-                "name": "Test User",
-                "email": "test@example.com",
-                "phoneNumber": "+11234567890",
+            // Generate a QR code ID - CRITICAL FIELD
+            let qrCodeId = UUID().uuidString
+            print("Generated QR code ID for test user: \(qrCodeId)")
+
+            // Document doesn't exist, create it with all required fields
+            var userData: [String: Any] = [
+                "uid": currentUserId,
+                "phoneNumber": phoneNumber,
                 "createdAt": FieldValue.serverTimestamp(),
                 "lastSignInTime": FieldValue.serverTimestamp(),
                 "profileComplete": true,
                 "notificationEnabled": true,
-                "testUser": true
+                "testUser": true,
+                "qrCodeId": qrCodeId,
+                "checkInInterval": 24 * 60 * 60, // 24 hours in seconds
+                "lastCheckedIn": FieldValue.serverTimestamp(),
+                "note": "This is a test user account",
+                // Initialize other fields with default values
+                "notify30MinBefore": false,
+                "notify2HoursBefore": false,
+                "manualAlertActive": false,
+                "manualAlertTimestamp": FieldValue.serverTimestamp(),
+                "contacts": []
             ]
 
-            testUserDoc.setData(userData) { error in
+            // Set user-specific data
+            if isFirstTestUser {
+                userData["name"] = "Test User 1" // Required field
+                userData["email"] = "test1@example.com"
+                userData["note"] = "This is test user 1 with phone +11234567890" // Override the default note
+            } else if isSecondTestUser {
+                userData["name"] = "Test User 2" // Required field
+                userData["email"] = "test2@example.com"
+                userData["note"] = "This is test user 2 with phone +16505553434" // Override the default note
+            } else {
+                userData["name"] = "Unknown Test User" // Ensure name is always set (required field)
+            }
+
+            // Log the data we're about to save
+            print("Creating test user document with fields: \(userData.keys.joined(separator: ", "))")
+
+            // Use setData with merge option to ensure we don't overwrite existing fields
+            testUserDoc.setData(userData, merge: true) { error in
                 if let error = error {
                     print("Error creating test user document: \(error.localizedDescription)")
+
+                    // Check if it's a permission error
+                    if let nsError = error as NSError?, nsError.domain == "FIRFirestoreErrorDomain" {
+                        print("Firestore error code: \(nsError.code)")
+                        print("Firestore error details: \(nsError.userInfo)")
+                    }
+
                     completion(false, error)
                     return
                 }
 
-                print("Successfully created test user document")
+                print("Successfully created test user document for \(phoneNumber)")
                 completion(true, nil)
             }
         }
@@ -253,7 +358,8 @@ class UserService {
             }
 
             if let data = document.data() {
-                let dataString = data.map { "\($0.key): \($0.value)" }.joined(separator: "\n")
+                // Create a summary of the data for logging purposes
+                let _ = data.map { "\($0.key): \($0.value)" }.joined(separator: "\n")
                 completion("Successfully accessed user data!\n\nUser ID: \(specificUserId)", true, data)
             } else {
                 completion("User document exists but has no data", false, nil)

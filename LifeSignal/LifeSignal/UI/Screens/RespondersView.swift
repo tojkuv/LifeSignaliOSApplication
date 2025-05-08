@@ -102,14 +102,35 @@ struct RespondersView: View {
         }
         .sheet(isPresented: $showQRScanner, onDismiss: {
             if let code = pendingScannedCode {
-                newContact = Contact(
-                    name: "Riley Johnson",
-                    phone: "555-123-4567",
-                    note: "I live with my elderly mother who needs daily medication. If I'm unresponsive, please check my house first - spare key with neighbor John at 123 Oak St. Medical conditions: Type 1 diabetes, insulin in kitchen fridge. I also have a rescue inhaler in my purse for occasional asthma.",
-                    qrCodeId: code,
-                    isResponder: true,
-                    isDependent: false
-                )
+                // Look up the user by QR code
+                userViewModel.lookupUserByQRCode(code) { userData, error in
+                    if let error = error {
+                        print("Error looking up user by QR code: \(error.localizedDescription)")
+                        return
+                    }
+
+                    guard let userData = userData else {
+                        print("No user found with QR code: \(code)")
+                        return
+                    }
+
+                    // Extract user data
+                    let name = userData[FirestoreSchema.User.name] as? String ?? "Unknown Name"
+                    let phone = userData[FirestoreSchema.User.phoneNumber] as? String ?? ""
+                    let note = userData[FirestoreSchema.User.note] as? String ?? ""
+
+                    // Create a new contact with the user data
+                    DispatchQueue.main.async {
+                        self.newContact = Contact(
+                            name: name,
+                            phone: phone,
+                            note: note,
+                            qrCodeId: code,
+                            isResponder: true,
+                            isDependent: false
+                        )
+                    }
+                }
                 pendingScannedCode = nil
             }
         }) {
@@ -123,10 +144,22 @@ struct RespondersView: View {
             AddContactSheet(
                 contact: .constant(contact),
                 onAdd: { confirmedContact in
-                    userViewModel.contacts.append(confirmedContact)
-                    // Show alert after sheet closes
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        showContactAddedAlert = true
+                    // Use the QR code to add the contact via Firebase
+                    if let qrCodeId = confirmedContact.qrCodeId {
+                        userViewModel.addContact(
+                            qrCodeId: qrCodeId,
+                            isResponder: confirmedContact.isResponder,
+                            isDependent: confirmedContact.isDependent
+                        ) { success, error in
+                            if success {
+                                // Show alert after sheet closes
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    showContactAddedAlert = true
+                                }
+                            } else if let error = error {
+                                print("Error adding contact: \(error.localizedDescription)")
+                            }
+                        }
                     }
                 },
                 onClose: { newContact = nil }

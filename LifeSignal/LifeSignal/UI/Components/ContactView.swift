@@ -11,9 +11,6 @@ struct ContactView: View {
                 Section {
                     Text(contact.name)
                         .font(.title3)
-                    Text("QR Code ID: \(contact.qrCodeId ?? "")")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 }
 
                 if let lastCheckIn = contact.lastCheckIn {

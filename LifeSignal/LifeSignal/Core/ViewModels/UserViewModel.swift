@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import FirebaseFirestore
 import FirebaseAuth
+import FirebaseFunctions
 
 /// ViewModel for managing user data and contacts
 class UserViewModel: ObservableObject {
@@ -684,36 +685,124 @@ class UserViewModel: ObservableObject {
 
     // MARK: - Contact Management
 
+    /// Looks up a user by QR code ID in Firestore
+    /// - Parameters:
+    ///   - qrCodeId: The QR code ID to look up
+    ///   - completion: Callback with user data and error
+    func lookupUserByQRCode(_ qrCodeId: String, completion: @escaping ([String: Any]?, Error?) -> Void) {
+        guard !qrCodeId.isEmpty else {
+            completion(nil, NSError(domain: "UserViewModel", code: 400, userInfo: [NSLocalizedDescriptionKey: "QR code ID is empty"]))
+            return
+        }
+
+        // Get reference to users collection
+        let db = Firestore.firestore()
+        let usersRef = db.collection(FirestoreSchema.Collections.users)
+
+        // Query for user with matching QR code ID
+        usersRef.whereField(FirestoreSchema.User.qrCodeId, isEqualTo: qrCodeId)
+            .limit(to: 1)
+            .getDocuments { snapshot, error in
+                if let error = error {
+                    print("Error looking up user by QR code: \(error.localizedDescription)")
+                    completion(nil, error)
+                    return
+                }
+
+                guard let documents = snapshot?.documents, !documents.isEmpty else {
+                    print("No user found with QR code ID: \(qrCodeId)")
+                    completion(nil, NSError(domain: "UserViewModel", code: 404, userInfo: [NSLocalizedDescriptionKey: "No user found with this QR code"]))
+                    return
+                }
+
+                // Return the first matching user's data
+                let userData = documents[0].data()
+                completion(userData, nil)
+            }
+    }
+
     /// Adds a new contact with the given QR code ID and role
+    /// - Parameters:
+    ///   - qrCodeId: The QR code ID of the contact
+    ///   - isResponder: True if the contact is a responder
+    ///   - isDependent: True if the contact is a dependent
+    ///   - completion: Optional callback with success flag and error
+    func addContact(qrCodeId: String, isResponder: Bool, isDependent: Bool, completion: ((Bool, Error?) -> Void)? = nil) {
+        guard let userId = AuthenticationService.shared.getCurrentUserID() else {
+            completion?(false, NSError(domain: "UserViewModel", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"]))
+            return
+        }
+
+        // First, look up the user by QR code ID
+        lookupUserByQRCode(qrCodeId) { [weak self] userData, error in
+            guard let self = self else { return }
+
+            if let error = error {
+                print("Error looking up user by QR code: \(error.localizedDescription)")
+                completion?(false, error)
+                return
+            }
+
+            guard let userData = userData else {
+                print("No user data found for QR code ID: \(qrCodeId)")
+                completion?(false, NSError(domain: "UserViewModel", code: 404, userInfo: [NSLocalizedDescriptionKey: "No user found with this QR code"]))
+                return
+            }
+
+            // Extract user data
+            let name = userData[FirestoreSchema.User.name] as? String ?? "Unknown Name"
+            let phone = userData[FirestoreSchema.User.phoneNumber] as? String ?? ""
+            let note = userData[FirestoreSchema.User.note] as? String ?? ""
+            let contactUserId = userData[FirestoreSchema.User.uid] as? String ?? ""
+
+            // Create a new contact with data from the user
+            let newContact = Contact.createDefault(
+                name: name,
+                phone: phone,
+                note: note,
+                isResponder: isResponder,
+                isDependent: isDependent
+            )
+
+            // Add the contact to the combined list
+            self.contacts.append(newContact)
+
+            // Get references to both user documents
+            let db = Firestore.firestore()
+            let userRef = db.collection(FirestoreSchema.Collections.users).document(userId)
+            let contactRef = db.collection(FirestoreSchema.Collections.users).document(contactUserId)
+
+            // Call the Cloud Function to create the bidirectional relationship
+            let functions = Functions.functions()
+            functions.httpsCallable("addContactRelation").call([
+                "userRefPath": userRef.path,
+                "contactRefPath": contactRef.path,
+                "isResponder": isResponder,
+                "isDependent": isDependent
+            ]) { result, error in
+                if let error = error {
+                    print("Error calling addContactRelation: \(error.localizedDescription)")
+                    completion?(false, error)
+                    return
+                }
+
+                print("Contact relationship created successfully")
+
+                // Reload contacts to get the updated list
+                self.loadContactsFromFirestore { success in
+                    completion?(success, nil)
+                }
+            }
+        }
+    }
+
+    /// Adds a new contact with the given QR code ID and single role
     /// - Parameters:
     ///   - qrCodeId: The QR code ID of the contact
     ///   - isResponder: True if the contact is a responder, false if dependent
     ///   - completion: Optional callback with success flag and error
     func addContact(qrCodeId: String, isResponder: Bool, completion: ((Bool, Error?) -> Void)? = nil) {
-        // Create a new contact with safe default values
-        let newContact = Contact.createDefault(
-            name: "Jane Doe",
-            phone: "555-123-4567",
-            note: "I live alone and work remotely. If I don't respond, my neighbor Tom (555-999-1234) has a spare key. I have a cat that needs feeding if I'm away. I have a peanut allergy and keep an EpiPen in my kitchen drawer.",
-            qrCodeId: qrCodeId,
-            isResponder: isResponder,
-            isDependent: !isResponder
-        )
-
-        // Add the contact to the combined list
-        contacts.append(newContact)
-
-        // Save to Firestore
-        saveContactToFirestore(newContact) { success, error in
-            if let error = error {
-                print("Error saving contact to Firestore: \(error.localizedDescription)")
-                completion?(false, error)
-                return
-            }
-
-            print("Contact saved to Firestore")
-            completion?(true, nil)
-        }
+        addContact(qrCodeId: qrCodeId, isResponder: isResponder, isDependent: !isResponder, completion: completion)
     }
 
     /// Removes a contact from the contacts list

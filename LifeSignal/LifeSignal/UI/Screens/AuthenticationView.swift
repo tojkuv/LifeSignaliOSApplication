@@ -1,6 +1,7 @@
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
+import UIKit
 
 struct AuthenticationView: View {
     @EnvironmentObject private var userViewModel: UserViewModel
@@ -8,12 +9,25 @@ struct AuthenticationView: View {
     @Binding var needsOnboarding: Bool
 
     @State private var showPhoneEntry = true
-    @State private var phoneNumber = "+11234567890" // Test phone number
+    @State private var phoneNumber: String
     @State private var verificationCode = "123456" // Test verification code
     @State private var verificationId = ""
     @State private var isLoading = false
     @State private var errorMessage = ""
     @State private var showError = false
+
+    init(isAuthenticated: Binding<Bool>, needsOnboarding: Binding<Bool>) {
+        self._isAuthenticated = isAuthenticated
+        self._needsOnboarding = needsOnboarding
+
+        // Set the initial phone number based on device model
+        // iPhone 13 Mini uses +16505553434, iPhone 16 Pro uses +11234567890 (flipped)
+        let initialPhoneNumber = DeviceHelper.shared.testPhoneNumber
+        self._phoneNumber = State(initialValue: initialPhoneNumber)
+
+        print("Device detected: \(DeviceHelper.shared.deviceModel.rawValue)")
+        print("Using test phone number: \(initialPhoneNumber)")
+    }
 
     var body: some View {
         NavigationStack {
@@ -52,6 +66,30 @@ struct AuthenticationView: View {
                 .textFieldStyle(RoundedBorderTextFieldStyle())
                 .padding(.horizontal)
                 .disabled(isLoading) // Disable during loading
+
+            // Display device information for debugging
+            VStack(spacing: 4) {
+                Text("Device: \(DeviceHelper.shared.deviceDisplayName)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Text("Model: \(DeviceHelper.shared.deviceModel.rawValue)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Text("Test User: \(phoneNumber)")
+                    .font(.caption)
+                    .foregroundColor(.blue)
+
+                // Show which test user is being used
+                Text(phoneNumber == "+11234567890" ? "iPhone 16 Pro User" : "iPhone 13 Mini User")
+                    .font(.caption)
+                    .foregroundColor(.green)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 2)
+                    .background(Color.green.opacity(0.2))
+                    .cornerRadius(4)
+            }
 
             Button(action: sendVerificationCode) {
                 if isLoading {
@@ -155,13 +193,24 @@ struct AuthenticationView: View {
         isLoading = true
         errorMessage = ""
 
+        print("Starting verification for phone number: \(phoneNumber)")
+
+        // Check if this is a test user
+        let isTestUser = phoneNumber == "+11234567890" || phoneNumber == "+16505553434"
+        if isTestUser {
+            print("This is a test user: \(phoneNumber)")
+        }
+
         // Use stored verification ID or get from UserDefaults
         let verId = verificationId.isEmpty ?
             UserDefaults.standard.string(forKey: "authVerificationID") ?? "" :
             verificationId
 
+        print("Using verification ID: \(verId)")
+
         AuthenticationService.shared.verifyCode(verificationID: verId, verificationCode: verificationCode) { authResult, error in
             if let error = error {
+                print("Authentication error: \(error.localizedDescription)")
                 DispatchQueue.main.async {
                     isLoading = false
                     errorMessage = "Error verifying code: \(error.localizedDescription)"
@@ -170,8 +219,11 @@ struct AuthenticationView: View {
                 return
             }
 
+            print("Authentication successful")
+
             // Successfully authenticated, now check if user has a document
             guard let userId = AuthenticationService.shared.getCurrentUserID() else {
+                print("Authentication succeeded but user ID is missing")
                 DispatchQueue.main.async {
                     isLoading = false
                     errorMessage = "Authentication succeeded but user ID is missing"
@@ -180,9 +232,17 @@ struct AuthenticationView: View {
                 return
             }
 
-            // Update session
+            print("Authenticated user ID: \(userId)")
+
+            // Check if this is a new user
+            let isNewUser = authResult?.additionalUserInfo?.isNewUser ?? false
+            print("Is new user: \(isNewUser)")
+
+            // Update session (will create user document if needed)
+            print("Updating session for user: \(userId)")
             SessionManager.shared.updateSession(userId: userId) { success, error in
                 if let error = error {
+                    print("Session update error: \(error.localizedDescription)")
                     DispatchQueue.main.async {
                         isLoading = false
                         errorMessage = "Error updating session: \(error.localizedDescription)"
@@ -191,45 +251,130 @@ struct AuthenticationView: View {
                     return
                 }
 
-                // Check if user has a document
-                UserService.shared.getCurrentUserData { userData, error in
-                    DispatchQueue.main.async {
-                        isLoading = false
+                print("Session updated successfully")
 
+                // For test users, create test user document if needed
+                if phoneNumber == "+11234567890" || phoneNumber == "+16505553434" {
+                    print("This is a test user (\(phoneNumber)), creating test user document if needed")
+
+                    // First try to get the user document to see if it exists
+                    UserService.shared.getCurrentUserData { userData, error in
                         if let error = error {
-                            // If error is "User document not found", user needs onboarding
+                            print("Error checking for existing user document: \(error.localizedDescription)")
+
+                            // If document doesn't exist, create it
                             if (error as NSError).domain == "UserService" && (error as NSError).code == 404 {
-                                needsOnboarding = true
-                                isAuthenticated = true
+                                print("User document not found, creating test user document")
+
+                                UserService.shared.createTestUserIfNeeded { success, createError in
+                                    if let createError = createError {
+                                        print("Error creating test user: \(createError.localizedDescription)")
+
+                                        // Check if it's a permission error
+                                        if let nsError = createError as NSError?, nsError.domain == "FIRFirestoreErrorDomain" {
+                                            print("Firestore error code: \(nsError.code)")
+                                            print("Firestore error details: \(nsError.userInfo)")
+                                        }
+                                    } else if success {
+                                        print("Test user document created successfully")
+
+                                        // Check if QR code was generated
+                                        UserService.shared.getCurrentUserData { userData, _ in
+                                            if let userData = userData, let qrCodeId = userData["qrCodeId"] as? String {
+                                                print("Verified QR code ID exists for test user: \(qrCodeId)")
+                                            } else {
+                                                print("WARNING: QR code ID not found in test user document!")
+                                            }
+
+                                            // Continue with getting user data regardless
+                                            self.continueWithUserData()
+                                        }
+                                    } else {
+                                        // Continue with getting user data
+                                        self.continueWithUserData()
+                                    }
+                                }
                             } else {
-                                errorMessage = "Error checking user data: \(error.localizedDescription)"
-                                showError = true
+                                // Some other error occurred
+                                self.continueWithUserData()
                             }
-                            return
-                        }
-
-                        if let userData = userData {
-                            // User exists, check if profile is complete
-                            let profileComplete = userData["profileComplete"] as? Bool ?? false
-
-                            if profileComplete {
-                                // User is authenticated and has a complete profile
-                                needsOnboarding = false
-                                isAuthenticated = true
-
-                                // Update UserViewModel with user data
-                                userViewModel.updateFromFirestore(userData: userData)
-                            } else {
-                                // User exists but profile is incomplete
-                                needsOnboarding = true
-                                isAuthenticated = true
-                            }
+                        } else if userData != nil {
+                            print("User document already exists, skipping test user creation")
+                            self.continueWithUserData()
                         } else {
-                            // No user data, needs onboarding
-                            needsOnboarding = true
-                            isAuthenticated = true
+                            print("No user data returned but no error either, creating test user document")
+                            UserService.shared.createTestUserIfNeeded { success, createError in
+                                if let createError = createError {
+                                    print("Error creating test user: \(createError.localizedDescription)")
+                                    self.continueWithUserData()
+                                } else if success {
+                                    print("Test user document created successfully")
+
+                                    // Check if QR code was generated
+                                    UserService.shared.getCurrentUserData { userData, _ in
+                                        if let userData = userData, let qrCodeId = userData["qrCodeId"] as? String {
+                                            print("Verified QR code ID exists for test user: \(qrCodeId)")
+                                        } else {
+                                            print("WARNING: QR code ID not found in test user document!")
+                                        }
+
+                                        // Continue with getting user data regardless
+                                        self.continueWithUserData()
+                                    }
+                                } else {
+                                    self.continueWithUserData()
+                                }
+                            }
                         }
                     }
+                } else {
+                    // For regular users, just get the user data
+                    print("Not a test user, continuing with regular user data")
+                    continueWithUserData()
+                }
+            }
+        }
+    }
+
+    /// Continue the authentication flow by checking user data
+    private func continueWithUserData() {
+        // Check if user has a document
+        UserService.shared.getCurrentUserData { userData, error in
+            DispatchQueue.main.async {
+                self.isLoading = false
+
+                if let error = error {
+                    // If error is "User document not found", user needs onboarding
+                    if (error as NSError).domain == "UserService" && (error as NSError).code == 404 {
+                        self.needsOnboarding = true
+                        self.isAuthenticated = true
+                    } else {
+                        self.errorMessage = "Error checking user data: \(error.localizedDescription)"
+                        self.showError = true
+                    }
+                    return
+                }
+
+                if let userData = userData {
+                    // User exists, check if profile is complete
+                    let profileComplete = userData["profileComplete"] as? Bool ?? false
+
+                    if profileComplete {
+                        // User is authenticated and has a complete profile
+                        self.needsOnboarding = false
+                        self.isAuthenticated = true
+
+                        // Update UserViewModel with user data
+                        self.userViewModel.updateFromFirestore(userData: userData)
+                    } else {
+                        // User exists but profile is incomplete
+                        self.needsOnboarding = true
+                        self.isAuthenticated = true
+                    }
+                } else {
+                    // No user data, needs onboarding
+                    self.needsOnboarding = true
+                    self.isAuthenticated = true
                 }
             }
         }

@@ -316,7 +316,7 @@ struct ContactDocument: Codable {
             name: contact.name,
             phoneNumber: contact.phone,
             note: contact.note,
-            qrCodeId: contact.qrCodeId,
+            qrCodeId: nil, // Don't store QR code ID in contact document
             isResponder: contact.isResponder,
             isDependent: contact.isDependent,
             lastCheckedIn: contact.lastCheckIn,
