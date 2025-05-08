@@ -2,6 +2,7 @@ import SwiftUI
 import Foundation
 import AVFoundation
 import UIKit
+import FirebaseFirestore
 
 struct HomeView: View {
     @EnvironmentObject private var userViewModel: UserViewModel
@@ -170,7 +171,21 @@ struct HomeView: View {
                             .foregroundColor(.primary)
                             .padding(.horizontal)
                             .padding(.leading)
-                        Picker("Check-in notification", selection: $userViewModel.notificationLeadTime) {
+                        Picker("Check-in notification", selection: Binding(
+                            get: { self.userViewModel.notificationLeadTime },
+                            set: { newValue in
+                                // Update local state immediately for responsive UI
+                                self.userViewModel.notificationLeadTime = newValue
+
+                                // Save to Firestore in the background
+                                self.userViewModel.setNotificationLeadTime(newValue) { success, error in
+                                    if let error = error {
+                                        // Just log the error, don't show to user
+                                        print("Error saving notification lead time: \(error.localizedDescription)")
+                                    }
+                                }
+                            }
+                        )) {
                             Text("30 mins").tag(30)
                             Text("2 hours").tag(120)
                         }
@@ -184,7 +199,9 @@ struct HomeView: View {
                     }
                     .onAppear {
                         if ![30, 120].contains(userViewModel.notificationLeadTime) {
+                            // Set default value and save to Firestore in the background
                             userViewModel.notificationLeadTime = 30
+                            userViewModel.setNotificationLeadTime(30) { _, _ in }
                         }
                     }
                     // Section: Help/Instructions
@@ -283,10 +300,27 @@ struct HomeView: View {
         .sheet(isPresented: $showIntervalPicker) {
             IntervalPickerView(
                 interval: userViewModel.checkInInterval,
-                onSave: { newInterval in
-                    userViewModel.checkInInterval = newInterval
+                onSave: { newInterval, completion in
+                    // Create data to update in Firestore
+                    let updateData: [String: Any] = [
+                        FirestoreSchema.User.checkInInterval: newInterval,
+                        FirestoreSchema.User.lastUpdated: FieldValue.serverTimestamp()
+                    ]
+
+                    // Save to Firestore
+                    userViewModel.saveUserData(additionalData: updateData) { success, error in
+                        if success {
+                            // Update local property if Firestore update was successful
+                            DispatchQueue.main.async {
+                                userViewModel.checkInInterval = newInterval
+                            }
+                        }
+                        // Pass result back to the IntervalPickerView
+                        completion(success, error)
+                    }
                 }
             )
+            .environmentObject(userViewModel)
             .presentationDetents([.medium])
         }
         .sheet(isPresented: $showInstructions) {
