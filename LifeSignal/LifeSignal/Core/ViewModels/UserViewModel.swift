@@ -54,7 +54,13 @@ class UserViewModel: ObservableObject {
     @Published var profileDescription: String = "I have a severe peanut allergy - EpiPen is always in my backpack's front pocket."
 
     /// Alert toggle state for HomeView
-    @Published var sendAlertActive: Bool = false
+    @Published var sendAlertActive: Bool = false {
+        didSet {
+            if sendAlertActive != oldValue {
+                updateAlertStatus(isActive: sendAlertActive)
+            }
+        }
+    }
 
     /// Flag indicating if user data has been loaded from Firestore
     @Published var isDataLoaded: Bool = false
@@ -94,6 +100,58 @@ class UserViewModel: ObservableObject {
                 if success {
                     // If user data loaded successfully, load contacts
                     self?.loadContactsFromFirestore()
+                }
+            }
+        }
+
+        // Set up notification observers for alerts
+        setupAlertNotificationObservers()
+    }
+
+    /// Set up notification observers for alerts from dependents
+    private func setupAlertNotificationObservers() {
+        // Observer for when a dependent sends an alert
+        NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("DependentAlertReceived"),
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self = self,
+                  let userInfo = notification.userInfo,
+                  let dependentId = userInfo["dependentId"] as? String else {
+                return
+            }
+
+            // Refresh contacts from Firestore to get the latest alert status
+            self.loadContactsFromFirestore { success in
+                if success {
+                    print("Contacts refreshed after receiving alert from dependent: \(dependentId)")
+
+                    // Update the UI
+                    NotificationCenter.default.post(name: NSNotification.Name("RefreshDependentsView"), object: nil)
+                }
+            }
+        }
+
+        // Observer for when a dependent cancels an alert
+        NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("DependentAlertCanceled"),
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self = self,
+                  let userInfo = notification.userInfo,
+                  let dependentId = userInfo["dependentId"] as? String else {
+                return
+            }
+
+            // Refresh contacts from Firestore to get the latest alert status
+            self.loadContactsFromFirestore { success in
+                if success {
+                    print("Contacts refreshed after dependent canceled alert: \(dependentId)")
+
+                    // Update the UI
+                    NotificationCenter.default.post(name: NSNotification.Name("RefreshDependentsView"), object: nil)
                 }
             }
         }
@@ -1139,5 +1197,67 @@ class UserViewModel: ObservableObject {
     /// Update the count of pending pings
     func updatePendingPingsCount() {
         pendingPingsCount = contacts.filter { $0.isResponder && $0.hasIncomingPing }.count
+    }
+
+    // MARK: - Alert Methods
+
+    /// Update the alert status in Firestore and notify responders
+    /// - Parameters:
+    ///   - isActive: Whether the alert is active
+    ///   - completion: Optional callback with success flag and error
+    private func updateAlertStatus(isActive: Bool, completion: ((Bool, Error?) -> Void)? = nil) {
+        guard let userId = AuthenticationService.shared.getCurrentUserID() else {
+            print("Cannot update alert status: No authenticated user")
+            completion?(false, NSError(domain: "UserViewModel", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"]))
+            return
+        }
+
+        // Update alert status in Firestore
+        let updateData: [String: Any] = [
+            "manualAlertActive": isActive,
+            "manualAlertTimestamp": isActive ? FieldValue.serverTimestamp() : FieldValue.delete(),
+            FirestoreSchema.User.lastUpdated: FieldValue.serverTimestamp()
+        ]
+
+        UserService.shared.updateCurrentUserData(data: updateData) { [weak self] success, error in
+            if let error = error {
+                print("Error updating alert status in Firestore: \(error.localizedDescription)")
+
+                // Revert the local state if the update failed
+                DispatchQueue.main.async {
+                    self?.sendAlertActive = !isActive
+                }
+
+                completion?(false, error)
+                return
+            }
+
+            print("Alert status updated in Firestore")
+
+            // Send or cancel the alert notification to responders
+            if isActive {
+                NotificationService.shared.sendManualAlert(userId: userId) { success, error in
+                    if let error = error {
+                        print("Error sending manual alert: \(error.localizedDescription)")
+                        completion?(false, error)
+                        return
+                    }
+
+                    print("Manual alert sent to responders")
+                    completion?(true, nil)
+                }
+            } else {
+                NotificationService.shared.cancelManualAlert(userId: userId) { success, error in
+                    if let error = error {
+                        print("Error canceling manual alert: \(error.localizedDescription)")
+                        completion?(false, error)
+                        return
+                    }
+
+                    print("Manual alert canceled")
+                    completion?(true, nil)
+                }
+            }
+        }
     }
 }

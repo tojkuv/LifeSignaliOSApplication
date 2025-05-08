@@ -74,5 +74,12 @@
 	</array>
 	<key>FirebaseAppDelegateProxyEnabled</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>remote-notification</string>
+	</array>
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>LifeSignal needs to send you notifications about check-in reminders and alerts from your dependents.</string>
 </dict>
 </plist>

@@ -1,20 +1,28 @@
 import Foundation
+import UIKit
+import UserNotifications
 import FirebaseCore
 import FirebaseFirestore
+import FirebaseMessaging
 
 /// Service class for Firebase functionality
-class FirebaseService {
+class FirebaseService: NSObject {
     // Singleton instance
     static let shared = FirebaseService()
 
     // Private initializer for singleton
-    private init() {}
+    private override init() {
+        super.init()
+    }
 
     /// Flag indicating if Firebase has been initialized
     private(set) var isInitialized = false
 
     /// Firebase app information
     private(set) var appInfo: [String: String] = [:]
+
+    /// FCM token for the current device
+    private(set) var fcmToken: String?
 
     /// Initialize Firebase
     func configure() {
@@ -44,8 +52,68 @@ class FirebaseService {
             print("Firebase Google App ID: \(options.googleAppID)")
             print("Firebase GCM Sender ID: \(options.gcmSenderID)")
             print("Firebase Project ID: \(options.projectID ?? "Not available")")
+
+            // Set up Firebase Messaging
+            setupFirebaseMessaging()
         } else {
             print("Firebase initialization failed!")
+        }
+    }
+
+    /// Set up Firebase Messaging
+    private func setupFirebaseMessaging() {
+        // Set messaging delegate
+        Messaging.messaging().delegate = self
+
+        // Register for remote notifications
+        UNUserNotificationCenter.current().delegate = self
+
+        let authOptions: UNAuthorizationOptions = [.alert, .badge, .sound]
+        UNUserNotificationCenter.current().requestAuthorization(
+            options: authOptions,
+            completionHandler: { granted, error in
+                if let error = error {
+                    print("Error requesting notification authorization: \(error.localizedDescription)")
+                    return
+                }
+
+                if granted {
+                    print("Notification authorization granted")
+                    DispatchQueue.main.async {
+                        UIApplication.shared.registerForRemoteNotifications()
+                    }
+                } else {
+                    print("Notification authorization denied")
+                }
+            }
+        )
+    }
+
+    /// Update FCM token in Firestore
+    /// - Parameter token: The FCM token to update
+    func updateFCMToken(_ token: String) {
+        self.fcmToken = token
+
+        // Only update if user is authenticated
+        guard let userId = AuthenticationService.shared.getCurrentUserID() else {
+            print("Cannot update FCM token: No authenticated user")
+            return
+        }
+
+        // Update token in Firestore
+        let db = Firestore.firestore()
+        let userRef = db.collection(FirestoreSchema.Collections.users).document(userId)
+
+        userRef.updateData([
+            FirestoreSchema.User.fcmToken: token,
+            FirestoreSchema.User.lastUpdated: FieldValue.serverTimestamp()
+        ]) { error in
+            if let error = error {
+                print("Error updating FCM token in Firestore: \(error.localizedDescription)")
+                return
+            }
+
+            print("FCM token updated in Firestore")
         }
     }
 
@@ -112,5 +180,78 @@ class FirebaseService {
                 }
             }
         }
+    }
+}
+
+// MARK: - MessagingDelegate
+extension FirebaseService: MessagingDelegate {
+    func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+        print("Firebase registration token: \(fcmToken ?? "nil")")
+
+        // Store token
+        if let token = fcmToken {
+            updateFCMToken(token)
+        }
+    }
+}
+
+// MARK: - UNUserNotificationCenterDelegate
+extension FirebaseService: UNUserNotificationCenterDelegate {
+    // Called when a notification is delivered to a foreground app
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        let userInfo = notification.request.content.userInfo
+        print("Received notification in foreground: \(userInfo)")
+
+        // Show the notification in foreground
+        completionHandler([.banner, .sound, .badge])
+    }
+
+    // Called when a user taps on a notification
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
+        let userInfo = response.notification.request.content.userInfo
+        print("User tapped on notification: \(userInfo)")
+
+        // Handle notification tap
+        if let alertType = userInfo["alertType"] as? String {
+            switch alertType {
+            case "manualAlert":
+                // Handle manual alert tap
+                if let dependentId = userInfo["dependentId"] as? String {
+                    print("Manual alert from dependent: \(dependentId)")
+                    // Post notification to navigate to the dependent's details
+                    NotificationCenter.default.post(
+                        name: NSNotification.Name("NavigateToDependentDetails"),
+                        object: nil,
+                        userInfo: ["dependentId": dependentId]
+                    )
+                }
+            case "manualAlertCanceled":
+                // Handle manual alert cancellation tap
+                if let dependentId = userInfo["dependentId"] as? String {
+                    print("Manual alert canceled for dependent: \(dependentId)")
+                    // Post notification to navigate to the dependent's details
+                    NotificationCenter.default.post(
+                        name: NSNotification.Name("NavigateToDependentDetails"),
+                        object: nil,
+                        userInfo: ["dependentId": dependentId]
+                    )
+                }
+            case "checkInExpired":
+                // Handle check-in expired tap
+                if let dependentId = userInfo["dependentId"] as? String {
+                    print("Check-in expired for dependent: \(dependentId)")
+                    // Post notification to navigate to the dependent's details
+                    NotificationCenter.default.post(
+                        name: NSNotification.Name("NavigateToDependentDetails"),
+                        object: nil,
+                        userInfo: ["dependentId": dependentId]
+                    )
+                }
+            default:
+                break
+            }
+        }
+
+        completionHandler()
     }
 }
