@@ -7,16 +7,20 @@ struct FirebaseTestView: View {
     @State private var firebaseStatus: String = "Checking Firebase status..."
     @State private var firestoreStatus: String = "Firestore not tested yet"
     @State private var authStatus: String = "Authentication not tested yet"
+    @State private var userDocStatus: String = "User document not tested yet"
     @State private var isRefreshing: Bool = false
     @State private var isTestingFirestore: Bool = false
     @State private var firestoreTestSuccess: Bool = false
     @State private var isTestingAuth: Bool = false
     @State private var authTestSuccess: Bool = false
+    @State private var isTestingUserDoc: Bool = false
+    @State private var userDocTestSuccess: Bool = false
     @State private var phoneNumber: String = "+16505553434" // Test phone number
     @State private var verificationCode: String = "123456" // Test verification code
     @State private var verificationID: String = ""
     @State private var isSigningOut: Bool = false
     @State private var showMainApp: Bool = false
+    @State private var userData: [String: Any] = [:]
     @EnvironmentObject private var userViewModel: UserViewModel
 
     var body: some View {
@@ -91,6 +95,39 @@ struct FirebaseTestView: View {
                                 .padding()
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(authTestSuccess ? Color.green.opacity(0.1) : Color(.systemGray6))
+                                .cornerRadius(8)
+                        }
+                        .frame(minHeight: 120, maxHeight: 150)
+                    }
+                    .padding(.horizontal)
+
+                    // User Document Status
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("User Document Status:")
+                                .font(.headline)
+
+                            if userDocTestSuccess {
+                                HStack {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.green)
+                                    Text("Document Found")
+                                        .foregroundColor(.green)
+                                        .fontWeight(.semibold)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.green.opacity(0.1))
+                                .cornerRadius(8)
+                            }
+                        }
+
+                        ScrollView {
+                            Text(userDocStatus)
+                                .font(.system(.body, design: .monospaced))
+                                .padding()
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(userDocTestSuccess ? Color.green.opacity(0.1) : Color(.systemGray6))
                                 .cornerRadius(8)
                         }
                         .frame(minHeight: 120, maxHeight: 150)
@@ -218,6 +255,53 @@ struct FirebaseTestView: View {
                             }
                         }
 
+                        // User Document Buttons (only show if authenticated)
+                        if AuthenticationService.shared.isAuthenticated {
+                            Group {
+                                // Check User Document Button
+                                Button(action: {
+                                    checkUserDocument()
+                                }) {
+                                    HStack {
+                                        Text("Check User Document")
+                                        if isTestingUserDoc {
+                                            ProgressView()
+                                                .progressViewStyle(CircularProgressViewStyle())
+                                        } else {
+                                            Image(systemName: "doc.text.magnifyingglass")
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                                    .background(Color.teal)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(10)
+                                }
+                                .disabled(isTestingUserDoc)
+
+                                // Create User Document Button
+                                Button(action: {
+                                    createUserDocument()
+                                }) {
+                                    HStack {
+                                        Text("Create User Document")
+                                        if isTestingUserDoc {
+                                            ProgressView()
+                                                .progressViewStyle(CircularProgressViewStyle())
+                                        } else {
+                                            Image(systemName: "doc.badge.plus")
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                                    .background(Color.mint)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(10)
+                                }
+                                .disabled(isTestingUserDoc)
+                            }
+                        }
+
                         // Continue to Main App Button
                         Button(action: {
                             showMainApp = true
@@ -245,6 +329,9 @@ struct FirebaseTestView: View {
             .onAppear {
                 checkFirebaseStatus()
                 updateAuthStatus()
+                if AuthenticationService.shared.isAuthenticated {
+                    checkUserDocument()
+                }
             }
             .navigationDestination(isPresented: $showMainApp) {
                 ContentView()
@@ -351,10 +438,131 @@ struct FirebaseTestView: View {
             if success {
                 authStatus = "Signed out successfully"
                 authTestSuccess = false
+                userDocStatus = "User document not tested yet"
+                userDocTestSuccess = false
             } else {
                 authStatus = "Error signing out"
             }
         }
+    }
+
+    private func checkUserDocument() {
+        guard AuthenticationService.shared.isAuthenticated else {
+            userDocStatus = "Error: User not authenticated. Please sign in first."
+            return
+        }
+
+        isTestingUserDoc = true
+        userDocStatus = "Checking user document..."
+        userDocTestSuccess = false
+
+        UserService.shared.getCurrentUserData { data, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    userDocStatus = "Error checking user document: \(error.localizedDescription)"
+                    isTestingUserDoc = false
+                    return
+                }
+
+                if let data = data {
+                    // Format the data for display
+                    let formattedData = formatUserData(data)
+                    userDocStatus = "User document found!\n\n\(formattedData)"
+                    userDocTestSuccess = true
+                    userData = data
+                } else {
+                    userDocStatus = "User document not found. You can create it using the button below."
+                }
+
+                isTestingUserDoc = false
+            }
+        }
+    }
+
+    private func createUserDocument() {
+        guard AuthenticationService.shared.isAuthenticated else {
+            userDocStatus = "Error: User not authenticated. Please sign in first."
+            return
+        }
+
+        isTestingUserDoc = true
+        userDocStatus = "Creating user document..."
+        userDocTestSuccess = false
+
+        // Create default user data
+        let defaultUserData: [String: Any] = [
+            "name": "New User",
+            "note": "This is a test user created from the Firebase Test View.",
+            "profileComplete": true,
+            "notificationEnabled": true,
+            "testUser": true
+        ]
+
+        UserService.shared.createUserDataIfNeeded(data: defaultUserData) { success, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    userDocStatus = "Error creating user document: \(error.localizedDescription)"
+                    isTestingUserDoc = false
+                    return
+                }
+
+                if success {
+                    // Document created or already exists, now get the data
+                    UserService.shared.getCurrentUserData { data, error in
+                        DispatchQueue.main.async {
+                            if let error = error {
+                                userDocStatus = "Document created but error retrieving it: \(error.localizedDescription)"
+                                isTestingUserDoc = false
+                                return
+                            }
+
+                            if let data = data {
+                                // Format the data for display
+                                let formattedData = formatUserData(data)
+                                userDocStatus = "User document created/updated successfully!\n\n\(formattedData)"
+                                userDocTestSuccess = true
+                                userData = data
+                            } else {
+                                userDocStatus = "Document created but no data returned."
+                            }
+
+                            isTestingUserDoc = false
+                        }
+                    }
+                } else {
+                    userDocStatus = "Failed to create user document."
+                    isTestingUserDoc = false
+                }
+            }
+        }
+    }
+
+    private func formatUserData(_ data: [String: Any]) -> String {
+        var result = ""
+
+        // Sort keys for consistent display
+        let sortedKeys = data.keys.sorted()
+
+        for key in sortedKeys {
+            let value = data[key]
+
+            // Format the value based on its type
+            var formattedValue = "nil"
+
+            if let timestamp = value as? Timestamp {
+                let date = timestamp.dateValue()
+                let formatter = DateFormatter()
+                formatter.dateStyle = .medium
+                formatter.timeStyle = .medium
+                formattedValue = formatter.string(from: date)
+            } else if let value = value {
+                formattedValue = "\(value)"
+            }
+
+            result += "\(key): \(formattedValue)\n"
+        }
+
+        return result
     }
 }
 
