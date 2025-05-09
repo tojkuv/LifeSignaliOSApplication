@@ -1,3 +1,27 @@
+# LifeSignal iOS Application .gitignore
+
+## User settings
+xcuserdata/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/**/*.xcuserdatad/
+*.xcodeproj/project.xcworkspace/xcuserdata/**/*.xcuserdatad/UserInterfaceState.xcuserstate
+LifeSignal/LifeSignal.xcodeproj/project.xcworkspace/xcuserdata/tojkuv.xcuserdatad/UserInterfaceState.xcuserstate
+*.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+*.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+
+## Obj-C/Swift specific
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+## Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
 # Sensitive files
 private_keys/
 *.p8
@@ -9,6 +33,9 @@ private_keys/
 *.env
 *.env.*
 AppSubmissionKey.p8
+AuthKey_*.p8
+api_key.txt
+secrets.json
 
 # macOS
 .DS_Store
@@ -30,3 +57,19 @@ Icon
 *.bak
 *.swp
 *~.nib
+DerivedData/
+build/
+*.moved-aside
+
+# Generated files
+*.generated.swift
+
+# Debug files
+*.dSYM
+*.dSYM.zip
+
+# AI context files
+IMPORTNANT_README.md
+
+# Scripts output
+scripts_output/

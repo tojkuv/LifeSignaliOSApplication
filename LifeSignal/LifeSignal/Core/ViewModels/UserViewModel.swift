@@ -4,6 +4,33 @@ import FirebaseFirestore
 import FirebaseAuth
 import FirebaseFunctions
 
+// MARK: - Error Types
+extension UserViewModel {
+    /// Error domain for UserViewModel
+    static let errorDomain = "UserViewModel"
+
+    /// Error codes for UserViewModel
+    enum ErrorCode: Int {
+        case unauthenticated = 401
+        case notFound = 404
+        case invalidArgument = 400
+        case serverError = 500
+    }
+
+    /// Create a standard error
+    /// - Parameters:
+    ///   - code: The error code
+    ///   - message: The error message
+    /// - Returns: An NSError with the given code and message
+    static func createError(code: ErrorCode, message: String) -> NSError {
+        return NSError(
+            domain: errorDomain,
+            code: code.rawValue,
+            userInfo: [NSLocalizedDescriptionKey: message]
+        )
+    }
+}
+
 /// ViewModel for managing user data and contacts
 class UserViewModel: ObservableObject {
     // MARK: - Published Properties
@@ -79,15 +106,95 @@ class UserViewModel: ObservableObject {
         return TimeManager.shared.formatTimeInterval(timeInterval)
     }
 
+    // MARK: - Helper Methods
+
+    /// Validates that the user is authenticated and returns the user ID
+    /// - Parameter completion: Callback with user ID or error
+    /// - Returns: The user ID if authenticated, nil otherwise
+    private func validateAuthentication(completion: ((String?, Error?) -> Void)? = nil) -> String? {
+        guard AuthenticationService.shared.isAuthenticated else {
+            let error = Self.createError(code: .unauthenticated, message: "User not authenticated")
+            completion?(nil, error)
+            return nil
+        }
+
+        guard let userId = AuthenticationService.shared.getCurrentUserID() else {
+            let error = Self.createError(code: .unauthenticated, message: "User ID not available")
+            completion?(nil, error)
+            return nil
+        }
+
+        completion?(userId, nil)
+        return userId
+    }
+
+    /// Posts notifications to refresh UI views
+    private func postUIRefreshNotifications() {
+        NotificationCenter.default.post(name: NSNotification.Name("RefreshDependentsView"), object: nil)
+        NotificationCenter.default.post(name: NSNotification.Name("RefreshRespondersView"), object: nil)
+    }
+
+    /// Calls a Firebase function with the given name and parameters
+    /// - Parameters:
+    ///   - functionName: The name of the function to call
+    ///   - parameters: The parameters to pass to the function
+    ///   - completion: Callback with result data and error
+    private func callFirebaseFunction(
+        functionName: String,
+        parameters: [String: Any],
+        completion: @escaping ([String: Any]?, Error?) -> Void
+    ) {
+        let functions = Functions.functions(region: "us-central1")
+        functions.httpsCallable(functionName).call(parameters) { result, error in
+            if let error = error {
+                print("Error calling \(functionName): \(error.localizedDescription)")
+                completion(nil, error)
+                return
+            }
+
+            guard let data = result?.data as? [String: Any] else {
+                let error = Self.createError(code: .serverError, message: "Invalid response from server")
+                completion(nil, error)
+                return
+            }
+
+            completion(data, nil)
+        }
+    }
+
+    /// Updates a contact in the local contacts array
+    /// - Parameters:
+    ///   - contact: The contact to update
+    ///   - updateAction: Optional closure to modify the contact before updating
+    /// - Returns: True if the contact was found and updated, false otherwise
+    @discardableResult
+    private func updateLocalContact(_ contact: Contact, updateAction: ((inout Contact) -> Void)? = nil) -> Bool {
+        if let index = contacts.firstIndex(where: { $0.id == contact.id }) {
+            var updatedContact = contacts[index]
+
+            // Apply the update action if provided
+            updateAction?(&updatedContact)
+
+            // Update the contact in the array
+            contacts[index] = updatedContact
+
+            // Post notifications to refresh the UI
+            postUIRefreshNotifications()
+
+            return true
+        }
+
+        return false
+    }
+
     // MARK: - Initialization
 
     init() {
         // Generate a random QR code ID for the user
         qrCodeId = UUID().uuidString
 
-        // Create sample contacts (both responders and dependents) for initial state
-        // These will be replaced when data is loaded from Firestore
-        contacts = createSampleContacts()
+        // Initialize with empty contacts array
+        contacts = []
 
         // Safely update counts after initialization
         DispatchQueue.main.async {
@@ -169,7 +276,19 @@ class UserViewModel: ObservableObject {
             return
         }
 
-        UserService.shared.getCurrentUserData { [weak self] userData, error in
+        // Get the current user ID
+        guard let userId = AuthenticationService.shared.getCurrentUserID() else {
+            print("Cannot load user data: User ID not available")
+            completion?(false)
+            return
+        }
+
+        // Get reference to the user document
+        let db = Firestore.firestore()
+        let userRef = db.collection(FirestoreSchema.Collections.users).document(userId)
+
+        // Get the document
+        userRef.getDocument { [weak self] document, error in
             guard let self = self else { return }
 
             if let error = error {
@@ -178,13 +297,14 @@ class UserViewModel: ObservableObject {
                 return
             }
 
-            if let userData = userData {
-                self.updateFromFirestore(userData: userData)
-                completion?(true)
-            } else {
+            guard let document = document, document.exists, let userData = document.data() else {
                 print("No user data found")
                 completion?(false)
+                return
             }
+
+            self.updateFromFirestore(userData: userData)
+            completion?(true)
         }
     }
 
@@ -280,7 +400,19 @@ class UserViewModel: ObservableObject {
         }
 
         // Save to Firestore
-        UserService.shared.updateCurrentUserData(data: userData) { success, error in
+        guard let userId = AuthenticationService.shared.getCurrentUserID() else {
+            let error = NSError(domain: "UserViewModel", code: 401, userInfo: [NSLocalizedDescriptionKey: "User ID not available"])
+            print("Error saving user data: \(error.localizedDescription)")
+            completion?(false, error)
+            return
+        }
+
+        // Get reference to the user document
+        let db = Firestore.firestore()
+        let userRef = db.collection(FirestoreSchema.Collections.users).document(userId)
+
+        // Update the document
+        userRef.setData(userData, merge: true) { error in
             if let error = error {
                 print("Error saving user data: \(error.localizedDescription)")
                 completion?(false, error)
@@ -289,6 +421,42 @@ class UserViewModel: ObservableObject {
 
             print("User data saved to Firestore")
             completion?(true, nil)
+        }
+    }
+
+    /// Create an empty contacts collection for a user
+    /// - Parameters:
+    ///   - userId: The user ID
+    ///   - completion: Callback with success flag and error
+    private func createEmptyContactsCollection(userId: String, completion: @escaping (Bool, Error?) -> Void) {
+        // Create a placeholder document in the contacts subcollection
+        let db = Firestore.firestore()
+        let placeholderDoc = db.collection(FirestoreSchema.Collections.users)
+            .document(userId)
+            .collection(FirestoreSchema.Collections.contacts)
+            .document("placeholder")
+
+        // Set placeholder data
+        placeholderDoc.setData([
+            "createdAt": FieldValue.serverTimestamp(),
+            "placeholder": true
+        ]) { error in
+            if let error = error {
+                print("Error creating contacts collection: \(error.localizedDescription)")
+                completion(false, error)
+                return
+            }
+
+            // Delete the placeholder document after creating the collection
+            placeholderDoc.delete { error in
+                if let error = error {
+                    print("Error deleting placeholder document: \(error.localizedDescription)")
+                    // Not critical, so still return success
+                }
+
+                print("Empty contacts collection created for user \(userId)")
+                completion(true, nil)
+            }
         }
     }
 
@@ -307,7 +475,7 @@ class UserViewModel: ObservableObject {
         }
 
         // Create a UserDocument object
-        let userDoc = UserDocument(
+        var userDoc = UserDocument(
             uid: userId,
             name: name,
             phoneNumber: Auth.auth().currentUser?.phoneNumber ?? "",
@@ -317,251 +485,140 @@ class UserViewModel: ObservableObject {
             lastSignInTime: Date()
         )
 
+        // Set profileComplete to true
+        userDoc.profileComplete = true
+
         // Convert to Firestore data
         let userData = userDoc.toFirestoreData()
 
         // Create the user document
-        UserService.shared.createUserDataIfNeeded(data: userData) { success, error in
+        guard let userId = AuthenticationService.shared.getCurrentUserID() else {
+            let error = NSError(domain: "UserViewModel", code: 401, userInfo: [NSLocalizedDescriptionKey: "User ID not available"])
+            print("Error creating user document: \(error.localizedDescription)")
+            completion?(false, error)
+            return
+        }
+
+        // Get reference to the user document
+        let db = Firestore.firestore()
+        let userRef = db.collection(FirestoreSchema.Collections.users).document(userId)
+
+        // Check if the document exists
+        userRef.getDocument { [weak self] document, error in
+            guard let self = self else { return }
+
             if let error = error {
-                print("Error creating user document: \(error.localizedDescription)")
+                print("Error checking user document: \(error.localizedDescription)")
                 completion?(false, error)
                 return
             }
 
-            print("User document created successfully")
-            completion?(true, nil)
+            // If document exists, update it
+            if let document = document, document.exists {
+                userRef.setData(userData, merge: true) { error in
+                    if let error = error {
+                        print("Error updating user document: \(error.localizedDescription)")
+                        completion?(false, error)
+                        return
+                    }
+
+                    print("User document updated successfully")
+
+                    // Create the QR lookup document
+                    self.updateQRLookup(userId: userId, qrCodeId: self.qrCodeId) { success, error in
+                        if let error = error {
+                            print("Error creating QR lookup document: \(error.localizedDescription)")
+                            // Not critical, so continue
+                        }
+
+                        // Create an empty contacts collection
+                        self.createEmptyContactsCollection(userId: userId) { success, error in
+                            if let error = error {
+                                print("Error creating contacts collection: \(error.localizedDescription)")
+                                // Not critical, so still return success for the main operation
+                            }
+
+                            print("User document created successfully")
+                            completion?(true, nil)
+                        }
+                    }
+                }
+            } else {
+                // Document doesn't exist, create it
+                userRef.setData(userData) { error in
+                    if let error = error {
+                        print("Error creating user document: \(error.localizedDescription)")
+                        completion?(false, error)
+                        return
+                    }
+
+                    print("User document created successfully")
+
+                    // Create the QR lookup document
+                    self.updateQRLookup(userId: userId, qrCodeId: self.qrCodeId) { success, error in
+                        if let error = error {
+                            print("Error creating QR lookup document: \(error.localizedDescription)")
+                            // Not critical, so continue
+                        }
+
+                        // Create an empty contacts collection
+                        self.createEmptyContactsCollection(userId: userId) { success, error in
+                            if let error = error {
+                                print("Error creating contacts collection: \(error.localizedDescription)")
+                                // Not critical, so still return success for the main operation
+                            }
+
+                            print("User document created successfully")
+                            completion?(true, nil)
+                        }
+                    }
+                }
+            }
         }
     }
 
-    /// Creates sample contacts for demo purposes (both responders and dependents)
-    private func createSampleContacts() -> [Contact] {
-        // Combine sample responders and dependents
-        let sampleResponders = createSampleResponders()
-        let sampleDependents = createSampleDependents()
 
-        return sampleResponders + sampleDependents
-    }
-
-    /// Creates sample responders for demo purposes
-    private func createSampleResponders() -> [Contact] {
-        let timeManager = TimeManager.shared
-
-        return [
-            // 1. Regular responder with standard interval (recently checked in)
-            Contact(
-                name: "Sarah Chen",
-                phone: "555-123-4567",
-                note: "Emergency contact for my elderly father. I'm a nurse at Memorial Hospital and work day shifts. My roommate Alex (555-888-2222) has a spare key to my apartment. I have a dog that needs walking twice daily.",
-                qrCodeId: UUID().uuidString,
-                isResponder: true,
-                isDependent: false,
-                lastCheckIn: timeManager.createPastDate(hoursAgo: 1),
-                interval: TimeManager.defaultInterval,
-                addedAt: timeManager.createPastDate(hoursAgo: 28),
-                hasIncomingPing: false,
-                hasOutgoingPing: false
-            ),
-
-            // 2. Responder with shorter interval (checked in a while ago)
-            Contact(
-                name: "James Wilson",
-                phone: "555-987-6543",
-                note: "I'm a park ranger at Redwood National Park. If I don't respond, contact the ranger station at 555-444-3333. I have a medical condition that requires daily medication. My sister Elaine (555-777-8888) has a key to my cabin.",
-                qrCodeId: UUID().uuidString,
-                isResponder: true,
-                isDependent: false,
-                lastCheckIn: timeManager.createPastDate(hoursAgo: 8),
-                interval: 12 * TimeManager.TimeUnits.hour,
-                addedAt: timeManager.createPastDate(hoursAgo: 45),
-                hasIncomingPing: false,
-                hasOutgoingPing: false
-            ),
-
-            // 3. Responder with incoming ping (we've pinged them)
-            Contact(
-                name: "Olivia Martinez",
-                phone: "555-555-5555",
-                note: "I live alone and work as a freelance photographer. I often go on solo hiking trips to remote locations. My emergency contacts are my brother David (555-222-1111) and my neighbor Mrs. Johnson (555-333-4444). I have a cat named Luna who needs feeding.",
-                qrCodeId: UUID().uuidString,
-                isResponder: true,
-                isDependent: false,
-                lastCheckIn: timeManager.createPastDate(hoursAgo: 3),
-                interval: 36 * TimeManager.TimeUnits.hour,
-                addedAt: timeManager.createPastDate(hoursAgo: 22),
-                hasIncomingPing: false,
-                hasOutgoingPing: true,
-                outgoingPingTimestamp: timeManager.createPastDate(hoursAgo: 0.1)
-            ),
-
-            // 4. Responder who has pinged us (incoming ping)
-            Contact(
-                name: "Daniel Kim",
-                phone: "555-444-3333",
-                note: "I'm a mountain guide who frequently leads expeditions. When not on trips, I work from my home office. My roommate Chris (555-666-7777) knows my schedule. I have a severe allergy to bee stings and carry an EpiPen in my backpack.",
-                qrCodeId: UUID().uuidString,
-                isResponder: true,
-                isDependent: false,
-                lastCheckIn: timeManager.createPastDate(hoursAgo: 5),
-                interval: TimeManager.defaultInterval,
-                addedAt: timeManager.createPastDate(hoursAgo: 60),
-                hasIncomingPing: true,
-                hasOutgoingPing: false,
-                incomingPingTimestamp: timeManager.createPastDate(hoursAgo: 0.3)
-            ),
-
-            // 5. Responder who is both a responder and dependent (dual role)
-            Contact(
-                name: "Emma Rodriguez",
-                phone: "555-111-2222",
-                note: "I'm both a caregiver and someone who needs occasional check-ins. I have type 1 diabetes and live alone. My medical information is in a red folder on my refrigerator. My sister Maria (555-999-8888) checks on me regularly.",
-                qrCodeId: UUID().uuidString,
-                isResponder: true,
-                isDependent: true,
-                lastCheckIn: timeManager.createPastDate(hoursAgo: 10),
-                interval: 48 * TimeManager.TimeUnits.hour,
-                addedAt: timeManager.createPastDate(hoursAgo: 75),
-                hasIncomingPing: false,
-                hasOutgoingPing: false
-            )
-        ]
-    }
-
-    /// Creates sample dependents for demo purposes
-    private func createSampleDependents() -> [Contact] {
-        let timeManager = TimeManager.shared
-
-        return [
-            // 1. Manual alert active (recent) - HIGHEST PRIORITY
-            Contact(
-                name: "Robert Taylor",
-                phone: "555-222-0001",
-                note: "I'm a solo backpacker who frequently goes on multi-day trips. I have asthma and carry an inhaler at all times. My emergency contact is my brother Michael (555-333-4444). My car is usually parked at the trailhead - blue Honda CRV license ABC-123.",
-                qrCodeId: UUID().uuidString,
-                isResponder: false,
-                isDependent: true,
-                lastCheckIn: timeManager.createPastDate(hoursAgo: 1),
-                interval: TimeManager.defaultInterval,
-                addedAt: timeManager.createPastDate(hoursAgo: 33),
-                manualAlertActive: true,
-                manualAlertTimestamp: timeManager.createPastDate(hoursAgo: 0.05),
-                hasIncomingPing: false,
-                hasOutgoingPing: false
-            ),
-
-            // 2. Not responsive (recent expiration) - HIGH PRIORITY
-            Contact(
-                name: "Sophia Garcia",
-                phone: "555-222-0003",
-                note: "I live alone and work as a night shift nurse. I have a heart condition and take medication daily. My spare key is with the building manager (555-777-8888). My sister Lisa (555-666-9999) should be contacted in emergencies.",
-                qrCodeId: UUID().uuidString,
-                isResponder: false,
-                isDependent: true,
-                lastCheckIn: timeManager.createPastDate(hoursAgo: 25),
-                interval: TimeManager.defaultInterval,
-                addedAt: timeManager.createPastDate(hoursAgo: 28),
-                hasIncomingPing: false,
-                hasOutgoingPing: false
-            ),
-
-            // 3. Never checked in (not responsive) - HIGH PRIORITY
-            Contact(
-                name: "William Johnson",
-                phone: "555-222-0005",
-                note: "I'm a wildlife photographer who often works in remote areas. I have a GPS tracker in my backpack. My emergency contacts are my partner Sam (555-444-3333) and my father (555-888-7777). I have no known medical conditions.",
-                qrCodeId: UUID().uuidString,
-                isResponder: false,
-                isDependent: true,
-                lastCheckIn: nil,
-                interval: TimeManager.defaultInterval,
-                addedAt: timeManager.createPastDate(hoursAgo: 22),
-                hasIncomingPing: false,
-                hasOutgoingPing: false
-            ),
-
-            // 4. Recently checked in (responsive) - NORMAL PRIORITY
-            Contact(
-                name: "Ava Williams",
-                phone: "555-222-0006",
-                note: "I'm a graduate student who lives alone. I have severe food allergies (peanuts, shellfish). My EpiPen is in the medicine cabinet. My roommate is usually home after 6 PM. My parents can be reached at 555-111-2222 in emergencies.",
-                qrCodeId: UUID().uuidString,
-                isResponder: false,
-                isDependent: true,
-                lastCheckIn: timeManager.createPastDate(hoursAgo: 0.2),
-                interval: TimeManager.defaultInterval,
-                addedAt: timeManager.createPastDate(hoursAgo: 19),
-                hasIncomingPing: false,
-                hasOutgoingPing: false
-            ),
-
-            // 5. Pinged dependent (we've pinged them) - MEDIUM PRIORITY
-            Contact(
-                name: "Noah Thompson",
-                phone: "555-222-0007",
-                note: "I work as a forest ranger and often patrol remote areas alone. My work truck is a white Ford Ranger with Forest Service logos. My supervisor can be reached at 555-444-5555. I have a service dog named Rex who is always with me.",
-                qrCodeId: UUID().uuidString,
-                isResponder: false,
-                isDependent: true,
-                lastCheckIn: timeManager.createPastDate(hoursAgo: 1),
-                interval: TimeManager.defaultInterval,
-                addedAt: timeManager.createPastDate(hoursAgo: 15),
-                hasIncomingPing: false,
-                hasOutgoingPing: true,
-                outgoingPingTimestamp: timeManager.createPastDate(hoursAgo: 0.05)
-            ),
-
-            // 6. Dependent with custom interval (longer) - NORMAL PRIORITY
-            Contact(
-                name: "Isabella Clark",
-                phone: "555-222-0008",
-                note: "I'm a travel writer who frequently visits remote locations. I check in weekly when on assignment. My editor knows my itinerary (555-999-1111). I have a prescription for high blood pressure medication that I take daily.",
-                qrCodeId: UUID().uuidString,
-                isResponder: false,
-                isDependent: true,
-                lastCheckIn: timeManager.createPastDate(hoursAgo: 36),
-                interval: 72 * TimeManager.TimeUnits.hour, // 3-day interval
-                addedAt: timeManager.createPastDate(hoursAgo: 100),
-                hasIncomingPing: false,
-                hasOutgoingPing: false
-            ),
-
-            // 7. Dependent with custom interval (shorter) - NORMAL PRIORITY
-            Contact(
-                name: "Ethan Brooks",
-                phone: "555-222-0009",
-                note: "I have a medical condition that requires frequent monitoring. I live with my elderly mother who has dementia. Our neighbor Mrs. Wilson (555-333-2222) checks on us daily. Home health nurse visits on Tuesdays and Thursdays.",
-                qrCodeId: UUID().uuidString,
-                isResponder: false,
-                isDependent: true,
-                lastCheckIn: timeManager.createPastDate(hoursAgo: 3),
-                interval: 6 * TimeManager.TimeUnits.hour, // 6-hour interval
-                addedAt: timeManager.createPastDate(hoursAgo: 50),
-                hasIncomingPing: false,
-                hasOutgoingPing: false
-            ),
-
-            // 8. Dependent who has pinged us (incoming ping) - MEDIUM PRIORITY
-            Contact(
-                name: "Mia Anderson",
-                phone: "555-222-0010",
-                note: "I'm a solo hiker who frequently explores national parks. I always leave my itinerary with the park rangers. My emergency contact is my partner Jordan (555-777-6666). I have no known medical conditions but am allergic to penicillin.",
-                qrCodeId: UUID().uuidString,
-                isResponder: false,
-                isDependent: true,
-                lastCheckIn: timeManager.createPastDate(hoursAgo: 12),
-                interval: TimeManager.defaultInterval,
-                addedAt: timeManager.createPastDate(hoursAgo: 40),
-                hasIncomingPing: true,
-                hasOutgoingPing: false,
-                incomingPingTimestamp: timeManager.createPastDate(hoursAgo: 0.4)
-            )
-        ]
-    }
 
     // MARK: - User Actions
+
+    /// Update or create a QR lookup document for a user
+    /// - Parameters:
+    ///   - userId: The user ID
+    ///   - qrCodeId: The QR code ID
+    ///   - completion: Callback with success flag and error
+    private func updateQRLookup(userId: String, qrCodeId: String, completion: @escaping (Bool, Error?) -> Void) {
+        // Create QR lookup document
+        let qrLookupDoc = QRLookupDocument(
+            qrCodeId: qrCodeId,
+            updatedAt: Date()
+        )
+
+        // Convert to Firestore data
+        let qrLookupData = qrLookupDoc.toFirestoreData()
+
+        // Save to Firestore using userId as document ID
+        let db = Firestore.firestore()
+        db.collection(FirestoreSchema.Collections.qrLookup).document(userId).setData(qrLookupData) { error in
+            if let error = error {
+                print("Error updating QR lookup: \(error.localizedDescription)")
+                completion(false, error)
+                return
+            }
+
+            print("QR lookup updated for user \(userId) with QR code \(qrCodeId)")
+            completion(true, nil)
+        }
+    }
 
     /// Generates a new QR code ID for the user
     /// - Parameter completion: Optional callback with success flag and error
     func generateNewQRCode(completion: ((Bool, Error?) -> Void)? = nil) {
+        guard let userId = AuthenticationService.shared.getCurrentUserID() else {
+            completion?(false, NSError(domain: "UserViewModel", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"]))
+            return
+        }
+
+        // Generate a new QR code ID
         qrCodeId = UUID().uuidString
 
         // Save to Firestore
@@ -570,15 +627,30 @@ class UserViewModel: ObservableObject {
             FirestoreSchema.User.lastUpdated: FieldValue.serverTimestamp()
         ]
 
-        UserService.shared.updateCurrentUserData(data: updateData) { success, error in
+        // Get reference to the user document
+        let db = Firestore.firestore()
+        let userRef = db.collection(FirestoreSchema.Collections.users).document(userId)
+
+        // Update the document
+        userRef.updateData(updateData) { [weak self] error in
+            guard let self = self else { return }
+
             if let error = error {
                 print("Error updating QR code ID in Firestore: \(error.localizedDescription)")
                 completion?(false, error)
                 return
             }
 
-            print("QR code ID updated in Firestore")
-            completion?(true, nil)
+            // Update the QR lookup database
+            self.updateQRLookup(userId: userId, qrCodeId: self.qrCodeId) { success, error in
+                if let error = error {
+                    print("Error updating QR lookup database: \(error.localizedDescription)")
+                    // Not critical, so still return success for the main operation
+                }
+
+                print("QR code ID updated in Firestore and QR lookup database")
+                completion?(true, nil)
+            }
         }
     }
 
@@ -593,7 +665,20 @@ class UserViewModel: ObservableObject {
             FirestoreSchema.User.lastUpdated: FieldValue.serverTimestamp()
         ]
 
-        UserService.shared.updateCurrentUserData(data: updateData) { success, error in
+        // Get the current user ID
+        guard let userId = AuthenticationService.shared.getCurrentUserID() else {
+            let error = NSError(domain: "UserViewModel", code: 401, userInfo: [NSLocalizedDescriptionKey: "User ID not available"])
+            print("Error updating last check-in time: \(error.localizedDescription)")
+            completion?(false, error)
+            return
+        }
+
+        // Get reference to the user document
+        let db = Firestore.firestore()
+        let userRef = db.collection(FirestoreSchema.Collections.users).document(userId)
+
+        // Update the document
+        userRef.updateData(updateData) { error in
             if let error = error {
                 print("Error updating last check-in time in Firestore: \(error.localizedDescription)")
                 completion?(false, error)
@@ -619,7 +704,20 @@ class UserViewModel: ObservableObject {
             FirestoreSchema.User.lastUpdated: FieldValue.serverTimestamp()
         ]
 
-        UserService.shared.updateCurrentUserData(data: updateData) { success, error in
+        // Get the current user ID
+        guard let userId = AuthenticationService.shared.getCurrentUserID() else {
+            let error = NSError(domain: "UserViewModel", code: 401, userInfo: [NSLocalizedDescriptionKey: "User ID not available"])
+            print("Error updating notification lead time: \(error.localizedDescription)")
+            completion?(false, error)
+            return
+        }
+
+        // Get reference to the user document
+        let db = Firestore.firestore()
+        let userRef = db.collection(FirestoreSchema.Collections.users).document(userId)
+
+        // Update the document
+        userRef.updateData(updateData) { error in
             if let error = error {
                 print("Error updating notification lead time in Firestore: \(error.localizedDescription)")
                 completion?(false, error)
@@ -645,7 +743,20 @@ class UserViewModel: ObservableObject {
             FirestoreSchema.User.lastUpdated: FieldValue.serverTimestamp()
         ]
 
-        UserService.shared.updateCurrentUserData(data: updateData) { success, error in
+        // Get the current user ID
+        guard let userId = AuthenticationService.shared.getCurrentUserID() else {
+            let error = NSError(domain: "UserViewModel", code: 401, userInfo: [NSLocalizedDescriptionKey: "User ID not available"])
+            print("Error updating name: \(error.localizedDescription)")
+            completion?(false, error)
+            return
+        }
+
+        // Get reference to the user document
+        let db = Firestore.firestore()
+        let userRef = db.collection(FirestoreSchema.Collections.users).document(userId)
+
+        // Update the document
+        userRef.updateData(updateData) { error in
             if let error = error {
                 print("Error updating name in Firestore: \(error.localizedDescription)")
                 completion?(false, error)
@@ -671,7 +782,20 @@ class UserViewModel: ObservableObject {
             FirestoreSchema.User.lastUpdated: FieldValue.serverTimestamp()
         ]
 
-        UserService.shared.updateCurrentUserData(data: updateData) { success, error in
+        // Get the current user ID
+        guard let userId = AuthenticationService.shared.getCurrentUserID() else {
+            let error = NSError(domain: "UserViewModel", code: 401, userInfo: [NSLocalizedDescriptionKey: "User ID not available"])
+            print("Error updating emergency note: \(error.localizedDescription)")
+            completion?(false, error)
+            return
+        }
+
+        // Get reference to the user document
+        let db = Firestore.firestore()
+        let userRef = db.collection(FirestoreSchema.Collections.users).document(userId)
+
+        // Update the document
+        userRef.updateData(updateData) { error in
             if let error = error {
                 print("Error updating emergency note in Firestore: \(error.localizedDescription)")
                 completion?(false, error)
@@ -695,30 +819,57 @@ class UserViewModel: ObservableObject {
             return
         }
 
-        // Get reference to users collection
+        // Look up the user ID from the QR lookup database
         let db = Firestore.firestore()
-        let usersRef = db.collection(FirestoreSchema.Collections.users)
+        let qrLookupRef = db.collection(FirestoreSchema.Collections.qrLookup)
 
-        // Query for user with matching QR code ID
-        usersRef.whereField(FirestoreSchema.User.qrCodeId, isEqualTo: qrCodeId)
-            .limit(to: 1)
-            .getDocuments { snapshot, error in
+        // Query for documents where qrCodeId matches
+        qrLookupRef.whereField("qrCodeId", isEqualTo: qrCodeId).getDocuments { snapshot, error in
+            if let error = error {
+                print("Error looking up QR code in lookup database: \(error.localizedDescription)")
+                completion(nil, error)
+                return
+            }
+
+            guard let snapshot = snapshot, !snapshot.documents.isEmpty else {
+                print("No user found with QR code ID: \(qrCodeId)")
+                completion(nil, NSError(domain: "UserViewModel", code: 404, userInfo: [NSLocalizedDescriptionKey: "No user found with this QR code"]))
+                return
+            }
+
+            // Get the user ID from the document ID
+            let userId = snapshot.documents[0].documentID
+
+            // Now get only the basic user information needed for display
+            let db = Firestore.firestore()
+            let userRef = db.collection(FirestoreSchema.Collections.users).document(userId)
+
+            userRef.getDocument { document, error in
                 if let error = error {
-                    print("Error looking up user by QR code: \(error.localizedDescription)")
+                    print("Error getting user document: \(error.localizedDescription)")
                     completion(nil, error)
                     return
                 }
 
-                guard let documents = snapshot?.documents, !documents.isEmpty else {
-                    print("No user found with QR code ID: \(qrCodeId)")
-                    completion(nil, NSError(domain: "UserViewModel", code: 404, userInfo: [NSLocalizedDescriptionKey: "No user found with this QR code"]))
+                guard let document = document, document.exists else {
+                    print("User document not found for ID: \(userId)")
+                    completion(nil, NSError(domain: "UserViewModel", code: 404, userInfo: [NSLocalizedDescriptionKey: "User document not found"]))
                     return
                 }
 
-                // Return the first matching user's data
-                let userData = documents[0].data()
-                completion(userData, nil)
+                // Only retrieve the minimal fields needed for contact creation
+                // This avoids accessing sensitive user data
+                let minimalUserData: [String: Any] = [
+                    FirestoreSchema.User.uid: userId,
+                    FirestoreSchema.User.name: document.data()?[FirestoreSchema.User.name] as? String ?? "Unknown Name",
+                    FirestoreSchema.User.phoneNumber: document.data()?[FirestoreSchema.User.phoneNumber] as? String ?? "",
+                    FirestoreSchema.User.note: document.data()?[FirestoreSchema.User.note] as? String ?? ""
+                ]
+
+                // Return the minimal user data
+                completion(minimalUserData, nil)
             }
+        }
     }
 
     /// Adds a new contact with the given QR code ID and role
@@ -728,12 +879,13 @@ class UserViewModel: ObservableObject {
     ///   - isDependent: True if the contact is a dependent
     ///   - completion: Optional callback with success flag and error
     func addContact(qrCodeId: String, isResponder: Bool, isDependent: Bool, completion: ((Bool, Error?) -> Void)? = nil) {
-        guard let userId = AuthenticationService.shared.getCurrentUserID() else {
-            completion?(false, NSError(domain: "UserViewModel", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"]))
+        // Validate authentication and get user ID
+        guard let userId = validateAuthentication() else {
+            completion?(false, Self.createError(code: .unauthenticated, message: "User not authenticated"))
             return
         }
 
-        // First, look up the user by QR code ID
+        // First, look up the user by QR code ID to get basic information for display
         lookupUserByQRCode(qrCodeId) { [weak self] userData, error in
             guard let self = self else { return }
 
@@ -745,48 +897,60 @@ class UserViewModel: ObservableObject {
 
             guard let userData = userData else {
                 print("No user data found for QR code ID: \(qrCodeId)")
-                completion?(false, NSError(domain: "UserViewModel", code: 404, userInfo: [NSLocalizedDescriptionKey: "No user found with this QR code"]))
+                completion?(false, Self.createError(code: .notFound, message: "No user found with this QR code"))
                 return
             }
 
-            // Extract user data
-            let name = userData[FirestoreSchema.User.name] as? String ?? "Unknown Name"
-            let phone = userData[FirestoreSchema.User.phoneNumber] as? String ?? ""
-            let note = userData[FirestoreSchema.User.note] as? String ?? ""
-            let contactUserId = userData[FirestoreSchema.User.uid] as? String ?? ""
-
-            // Create a new contact with data from the user
-            let newContact = Contact.createDefault(
-                name: name,
-                phone: phone,
-                note: note,
-                isResponder: isResponder,
-                isDependent: isDependent
-            )
-
-            // Add the contact to the combined list
-            self.contacts.append(newContact)
-
-            // Get references to both user documents
-            let db = Firestore.firestore()
-            let userRef = db.collection(FirestoreSchema.Collections.users).document(userId)
-            let contactRef = db.collection(FirestoreSchema.Collections.users).document(contactUserId)
-
             // Call the Cloud Function to create the bidirectional relationship
-            let functions = Functions.functions()
-            functions.httpsCallable("addContactRelation").call([
-                "userRefPath": userRef.path,
-                "contactRefPath": contactRef.path,
+            let parameters: [String: Any] = [
+                "userId": userId,
+                "qrCode": qrCodeId,  // Keep using qrCode as the parameter name to match the cloud function's expected parameter
                 "isResponder": isResponder,
                 "isDependent": isDependent
-            ]) { result, error in
-                if let error = error {
-                    print("Error calling addContactRelation: \(error.localizedDescription)")
+            ]
+
+            self.callFirebaseFunction(functionName: "addContactRelation", parameters: parameters) { data, error in
+                if let error = error as NSError? {
+                    // Check for specific error codes
+                    if error.domain == "com.firebase.functions" {
+                        // Parse the Firebase error message
+                        if let details = error.userInfo["FIRFunctionsErrorDetailsKey"] as? [String: Any],
+                           let message = details["message"] as? String {
+
+                            // Check if this is the "already exists" error
+                            if message.contains("already in your contacts") {
+                                print("Contact already exists: \(message)")
+
+                                // This is not a failure case - the contact already exists
+                                // Reload contacts to ensure the UI is up to date
+                                self.loadContactsFromFirestore { _ in
+                                    // Return a special error that UI can handle appropriately
+                                    completion?(true, Self.createError(code: .invalidArgument, message: "Contact already exists"))
+                                }
+                                return
+                            }
+                        }
+                    }
+
+                    // For all other errors
+                    print("Error adding contact: \(error.localizedDescription)")
                     completion?(false, error)
                     return
                 }
 
-                print("Contact relationship created successfully")
+                guard let data = data,
+                      let success = data["success"] as? Bool,
+                      let contactId = data["contactId"] as? String else {
+                    completion?(false, Self.createError(code: .serverError, message: "Invalid response from server"))
+                    return
+                }
+
+                if !success {
+                    completion?(false, Self.createError(code: .serverError, message: "Server reported failure"))
+                    return
+                }
+
+                print("Contact relationship created successfully with contact ID: \(contactId)")
 
                 // Reload contacts to get the updated list
                 self.loadContactsFromFirestore { success in
@@ -819,18 +983,46 @@ class UserViewModel: ObservableObject {
         print("After removal - Responders count: \(responders.count), Dependents count: \(dependents.count)")
 
         // Post notification to refresh the lists views
-        NotificationCenter.default.post(name: NSNotification.Name("RefreshDependentsView"), object: nil)
-        NotificationCenter.default.post(name: NSNotification.Name("RefreshRespondersView"), object: nil)
+        postUIRefreshNotifications()
 
-        // Remove from Firestore
-        deleteContactFromFirestore(contact) { success, error in
+        // Find the contact's user ID
+        guard let contactId = findContactUserId(for: contact) else {
+            print("Cannot find user ID for contact: \(contact.name)")
+            // Still consider it a success since we've removed it locally
+            completion?(true, nil)
+            return
+        }
+
+        // Validate authentication and get user ID
+        guard let userId = validateAuthentication() else {
+            completion?(false, Self.createError(code: .unauthenticated, message: "User not authenticated"))
+            return
+        }
+
+        // Call the Cloud Function to delete the bidirectional relationship
+        let parameters: [String: Any] = [
+            "userARefPath": "users/\(userId)",
+            "userBRefPath": "users/\(contactId)"
+        ]
+
+        callFirebaseFunction(functionName: "deleteContactRelation", parameters: parameters) { data, error in
             if let error = error {
-                print("Error removing contact from Firestore: \(error.localizedDescription)")
                 completion?(false, error)
                 return
             }
 
-            print("Contact removed from Firestore")
+            guard let data = data,
+                  let success = data["success"] as? Bool else {
+                completion?(false, Self.createError(code: .serverError, message: "Invalid response from server"))
+                return
+            }
+
+            if !success {
+                completion?(false, Self.createError(code: .serverError, message: "Server reported failure"))
+                return
+            }
+
+            print("Contact relationship deleted successfully")
             completion?(true, nil)
         }
     }
@@ -865,89 +1057,211 @@ class UserViewModel: ObservableObject {
         NotificationCenter.default.post(name: NSNotification.Name("RefreshDependentsView"), object: nil)
         NotificationCenter.default.post(name: NSNotification.Name("RefreshRespondersView"), object: nil)
 
-        // Update in Firestore
-        updateContactInFirestore(contact) { success, error in
+        // Update the contact relationship using the cloud function
+        updateContactRelationship(contact, updateRoles: true) { success, error in
             if let error = error {
-                print("Error updating contact in Firestore: \(error.localizedDescription)")
+                print("Error updating contact relationship: \(error.localizedDescription)")
                 completion?(false, error)
                 return
             }
 
-            print("Contact updated in Firestore")
+            print("Contact relationship updated successfully")
             completion?(true, nil)
         }
     }
 
+    /// Updates a contact relationship using the cloud function
+    /// - Parameters:
+    ///   - contact: The contact to update
+    ///   - updateRoles: Whether to update the roles (isResponder, isDependent)
+    ///   - updatePings: Whether to update ping status
+    ///   - updateNotifications: Whether to update notification settings
+    ///   - completion: Optional callback with success flag and error
+    func updateContactRelationship(_ contact: Contact,
+                                  updateRoles: Bool = false,
+                                  updatePings: Bool = false,
+                                  updateNotifications: Bool = false,
+                                  completion: ((Bool, Error?) -> Void)? = nil) {
+        // Validate authentication and get user ID
+        guard let userId = validateAuthentication() else {
+            completion?(false, Self.createError(code: .unauthenticated, message: "User not authenticated"))
+            return
+        }
+
+        // Find the contact's user ID
+        guard let contactId = findContactUserId(for: contact) else {
+            print("Cannot find user ID for contact: \(contact.name)")
+            completion?(false, Self.createError(code: .notFound, message: "Contact user ID not found"))
+            return
+        }
+
+        // Prepare parameters for the cloud function
+        let userRefPath = "users/\(userId)"
+        let contactRefPath = "users/\(contactId)"
+
+        var params: [String: Any] = [
+            "userRefPath": userRefPath,
+            "contactRefPath": contactRefPath
+        ]
+
+        // Add role parameters if needed
+        if updateRoles {
+            params["isResponder"] = contact.isResponder
+            params["isDependent"] = contact.isDependent
+        }
+
+        // Add ping parameters if needed
+        if updatePings {
+            params["sendPings"] = true // Default to true
+            params["receivePings"] = true // Default to true
+        }
+
+        // Add notification parameters if needed
+        if updateNotifications {
+            params["notifyOnCheckIn"] = contact.isResponder
+            params["notifyOnExpiry"] = contact.isResponder
+        }
+
+        // Call the cloud function
+        callFirebaseFunction(functionName: "updateContactRelation", parameters: params) { data, error in
+            if let error = error {
+                completion?(false, error)
+                return
+            }
+
+            guard let data = data,
+                  let success = data["success"] as? Bool else {
+                completion?(false, Self.createError(code: .serverError, message: "Invalid response from server"))
+                return
+            }
+
+            if !success {
+                completion?(false, Self.createError(code: .serverError, message: "Server reported failure"))
+                return
+            }
+
+            print("Contact relationship updated successfully")
+            completion?(true, nil)
+        }
+    }
+
+    /// Finds the user ID for a contact
+    /// - Parameter contact: The contact to find the user ID for
+    /// - Returns: The user ID if found, nil otherwise
+    private func findContactUserId(for contact: Contact) -> String? {
+        // If we have a QR code ID, look it up
+        if let qrCodeId = contact.qrCodeId, !qrCodeId.isEmpty {
+            // This is a synchronous method, so we need to use a semaphore
+            let semaphore = DispatchSemaphore(value: 0)
+            var userId: String? = nil
+
+            let db = Firestore.firestore()
+            db.collection(FirestoreSchema.Collections.qrLookup)
+                .whereField("qrCodeId", isEqualTo: qrCodeId)
+                .limit(to: 1)
+                .getDocuments { snapshot, error in
+                    defer { semaphore.signal() }
+
+                    if let error = error {
+                        print("Error looking up QR code: \(error.localizedDescription)")
+                        return
+                    }
+
+                    userId = snapshot?.documents.first?.documentID
+                }
+
+            // Wait for the lookup to complete (with timeout)
+            _ = semaphore.wait(timeout: .now() + 5.0)
+
+            if let userId = userId {
+                return userId
+            }
+        }
+
+        // If we don't have a QR code ID or lookup failed, try to find the contact in Firestore
+        guard let currentUserId = AuthenticationService.shared.getCurrentUserID() else {
+            return nil
+        }
+
+        // Look for a contact with matching ID in the user's contacts collection
+        let db = Firestore.firestore()
+        let contactsRef = db.collection(FirestoreSchema.Collections.users)
+            .document(currentUserId)
+            .collection(FirestoreSchema.Collections.contacts)
+
+        // This is a synchronous method, so we need to use a semaphore
+        let semaphore = DispatchSemaphore(value: 0)
+        var contactUserId: String? = nil
+
+        contactsRef.document(contact.id.uuidString).getDocument { document, error in
+            defer { semaphore.signal() }
+
+            if let error = error {
+                print("Error getting contact document: \(error.localizedDescription)")
+                return
+            }
+
+            if let document = document, document.exists,
+               let data = document.data() {
+                // Check for both old reference format and new referencePath format
+                if let reference = data["reference"] as? DocumentReference {
+                    contactUserId = reference.documentID
+                } else if let referencePath = data["referencePath"] as? String {
+                    // Extract the document ID from the path (format: "users/userId")
+                    let components = referencePath.components(separatedBy: "/")
+                    if components.count == 2 && components[0] == "users" {
+                        contactUserId = components[1]
+                    }
+                }
+            }
+        }
+
+        // Wait for the lookup to complete (with timeout)
+        _ = semaphore.wait(timeout: .now() + 5.0)
+
+        return contactUserId
+    }
+
     // MARK: - Firestore Contact Operations
 
-    /// Save a contact to Firestore
+    /// Save a contact to Firestore - now a wrapper around our new approach
     /// - Parameters:
     ///   - contact: The contact to save
     ///   - completion: Optional callback with success flag and error
     private func saveContactToFirestore(_ contact: Contact, completion: @escaping (Bool, Error?) -> Void) {
-        guard let userId = AuthenticationService.shared.getCurrentUserID() else {
-            completion(false, NSError(domain: "UserViewModel", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"]))
-            return
-        }
+        // For new contacts, we need to use the addContact method with QR code
+        if let qrCodeId = contact.qrCodeId, !qrCodeId.isEmpty {
+            addContact(qrCodeId: qrCodeId,
+                      isResponder: contact.isResponder,
+                      isDependent: contact.isDependent) { success, error in
+                if let error = error {
+                    print("Error saving contact to Firestore: \(error.localizedDescription)")
+                    completion(false, error)
+                    return
+                }
 
-        // Convert Contact to ContactDocument
-        let contactDoc = ContactDocument.fromContact(contact)
-
-        // Convert to Firestore data
-        let contactData = contactDoc.toFirestoreData()
-
-        // Get reference to contacts subcollection
-        let db = Firestore.firestore()
-        let contactRef = db.collection(FirestoreSchema.Collections.users)
-            .document(userId)
-            .collection(FirestoreSchema.Collections.contacts)
-            .document(contact.id.uuidString)
-
-        // Save to Firestore
-        contactRef.setData(contactData) { error in
-            if let error = error {
-                print("Error saving contact to Firestore: \(error.localizedDescription)")
-                completion(false, error)
-                return
+                print("Contact saved to Firestore: \(contact.name)")
+                completion(true, nil)
             }
-
-            print("Contact saved to Firestore: \(contact.name)")
-            completion(true, nil)
+        } else {
+            // If we don't have a QR code, we can't create the contact using our new approach
+            // This should not happen in normal operation, but we'll handle it gracefully
+            print("Cannot save contact without QR code: \(contact.name)")
+            completion(false, NSError(domain: "UserViewModel", code: 400, userInfo: [NSLocalizedDescriptionKey: "Cannot save contact without QR code"]))
         }
     }
 
-    /// Update a contact in Firestore
+    /// Update a contact in Firestore - now a wrapper around our new approach
     /// - Parameters:
     ///   - contact: The contact to update
     ///   - completion: Optional callback with success flag and error
     private func updateContactInFirestore(_ contact: Contact, completion: @escaping (Bool, Error?) -> Void) {
-        guard let userId = AuthenticationService.shared.getCurrentUserID() else {
-            completion(false, NSError(domain: "UserViewModel", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"]))
-            return
-        }
-
-        // Convert Contact to ContactDocument
-        let contactDoc = ContactDocument.fromContact(contact)
-
-        // Convert to Firestore data
-        let contactData = contactDoc.toFirestoreData()
-
-        // Get reference to contacts subcollection
-        let db = Firestore.firestore()
-        let contactRef = db.collection(FirestoreSchema.Collections.users)
-            .document(userId)
-            .collection(FirestoreSchema.Collections.contacts)
-            .document(contact.id.uuidString)
-
-        // Update in Firestore
-        contactRef.updateData(contactData) { error in
+        // Use the updateContactRelationship method to update the contact
+        updateContactRelationship(contact,
+                                 updateRoles: true,
+                                 updatePings: true,
+                                 updateNotifications: true) { success, error in
             if let error = error {
-                // If document doesn't exist, create it
-                if (error as NSError).domain == FirestoreErrorDomain && (error as NSError).code == FirestoreErrorCode.notFound.rawValue {
-                    self.saveContactToFirestore(contact, completion: completion)
-                    return
-                }
-
                 print("Error updating contact in Firestore: \(error.localizedDescription)")
                 completion(false, error)
                 return
@@ -958,32 +1272,50 @@ class UserViewModel: ObservableObject {
         }
     }
 
-    /// Delete a contact from Firestore
+    /// Delete a contact from Firestore - now a wrapper around our new approach
     /// - Parameters:
     ///   - contact: The contact to delete
     ///   - completion: Optional callback with success flag and error
     private func deleteContactFromFirestore(_ contact: Contact, completion: @escaping (Bool, Error?) -> Void) {
+        // Find the contact's user ID
+        guard let contactId = findContactUserId(for: contact) else {
+            print("Cannot find user ID for contact: \(contact.name)")
+            // Still consider it a success since we've removed it locally
+            completion(true, nil)
+            return
+        }
+
         guard let userId = AuthenticationService.shared.getCurrentUserID() else {
             completion(false, NSError(domain: "UserViewModel", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"]))
             return
         }
 
-        // Get reference to contacts subcollection
-        let db = Firestore.firestore()
-        let contactRef = db.collection(FirestoreSchema.Collections.users)
-            .document(userId)
-            .collection(FirestoreSchema.Collections.contacts)
-            .document(contact.id.uuidString)
-
-        // Delete from Firestore
-        contactRef.delete { error in
+        // Call the Cloud Function to delete the bidirectional relationship
+        let functions = Functions.functions(region: "us-central1")
+        functions.httpsCallable("deleteContactRelation").call([
+            "userARefPath": "users/\(userId)",
+            "userBRefPath": "users/\(contactId)"
+        ]) { result, error in
             if let error = error {
-                print("Error deleting contact from Firestore: \(error.localizedDescription)")
+                print("Error calling deleteContactRelation: \(error.localizedDescription)")
                 completion(false, error)
                 return
             }
 
-            print("Contact deleted from Firestore: \(contact.name)")
+            guard let data = result?.data as? [String: Any],
+                  let success = data["success"] as? Bool else {
+                print("Invalid response from deleteContactRelation function")
+                completion(false, NSError(domain: "UserViewModel", code: 500, userInfo: [NSLocalizedDescriptionKey: "Invalid response from server"]))
+                return
+            }
+
+            if !success {
+                print("Function reported failure")
+                completion(false, NSError(domain: "UserViewModel", code: 500, userInfo: [NSLocalizedDescriptionKey: "Server reported failure"]))
+                return
+            }
+
+            print("Contact relationship deleted successfully")
             completion(true, nil)
         }
     }
@@ -1101,43 +1433,66 @@ class UserViewModel: ObservableObject {
 
     // MARK: - Ping Methods
 
+    /// Enum representing the type of ping operation
+    enum PingOperation {
+        case send
+        case respond
+        case clear
+    }
+
+    /// Handle a ping operation for a contact
+    /// - Parameters:
+    ///   - operation: The type of ping operation
+    ///   - contact: The contact to perform the operation on
+    ///   - completion: Optional callback with success flag and error
+    private func handlePingOperation(operation: PingOperation, for contact: Contact, completion: ((Bool, Error?) -> Void)? = nil) {
+        let now = Date()
+        let updated = updateLocalContact(contact) { updatedContact in
+            switch operation {
+            case .send:
+                updatedContact.hasOutgoingPing = true
+                updatedContact.outgoingPingTimestamp = now
+                print("Sent ping to contact: \(updatedContact.name)")
+            case .respond:
+                updatedContact.hasIncomingPing = false
+                updatedContact.incomingPingTimestamp = nil
+                print("Responded to ping from contact: \(updatedContact.name)")
+            case .clear:
+                updatedContact.hasOutgoingPing = false
+                updatedContact.outgoingPingTimestamp = nil
+                print("Cleared outgoing ping for contact: \(updatedContact.name)")
+            }
+        }
+
+        if !updated {
+            let error = Self.createError(code: .notFound, message: "Contact not found")
+            completion?(false, error)
+            return
+        }
+
+        // Update the contact relationship using the cloud function
+        if let index = contacts.firstIndex(where: { $0.id == contact.id }) {
+            updateContactRelationship(contacts[index], updatePings: true) { success, error in
+                if let error = error {
+                    print("Error updating ping status: \(error.localizedDescription)")
+                    completion?(false, error)
+                    return
+                }
+
+                print("Ping status updated successfully")
+                completion?(true, nil)
+            }
+        }
+
+        updatePendingPingsCount()
+    }
+
     /// Send a ping to a responder
     /// - Parameters:
     ///   - responder: The responder to ping
     ///   - completion: Optional callback with success flag and error
     func sendPing(to responder: Contact, completion: ((Bool, Error?) -> Void)? = nil) {
-        let now = Date()
-
-        // Find the contact in the contacts list
-        if let index = contacts.firstIndex(where: { $0.id == responder.id }) {
-            // Set outgoing ping for the contact
-            var updatedContact = contacts[index]
-            updatedContact.hasOutgoingPing = true
-            updatedContact.outgoingPingTimestamp = now
-            contacts[index] = updatedContact
-            print("Sent ping to contact: \(updatedContact.name)")
-
-            // Post notifications to refresh the UI
-            NotificationCenter.default.post(name: NSNotification.Name("RefreshDependentsView"), object: nil)
-            NotificationCenter.default.post(name: NSNotification.Name("RefreshRespondersView"), object: nil)
-
-            // Update in Firestore
-            updateContactInFirestore(updatedContact) { success, error in
-                if let error = error {
-                    print("Error updating contact ping status in Firestore: \(error.localizedDescription)")
-                    completion?(false, error)
-                    return
-                }
-
-                print("Contact ping status updated in Firestore")
-                completion?(true, nil)
-            }
-        } else {
-            let error = NSError(domain: "UserViewModel", code: 404, userInfo: [NSLocalizedDescriptionKey: "Contact not found"])
-            completion?(false, error)
-        }
-
-        updatePendingPingsCount()
+        handlePingOperation(operation: .send, for: responder, completion: completion)
     }
 
     /// Send a ping to a dependent
@@ -1154,36 +1509,7 @@ class UserViewModel: ObservableObject {
     ///   - responder: The responder whose ping to respond to
     ///   - completion: Optional callback with success flag and error
     func respondToPing(from responder: Contact, completion: ((Bool, Error?) -> Void)? = nil) {
-        // Find the contact in the contacts list
-        if let index = contacts.firstIndex(where: { $0.id == responder.id }) {
-            // Clear incoming ping
-            var updatedContact = contacts[index]
-            updatedContact.hasIncomingPing = false
-            updatedContact.incomingPingTimestamp = nil
-            contacts[index] = updatedContact
-            print("Responded to ping from contact: \(updatedContact.name)")
-
-            // Post notifications to refresh the UI
-            NotificationCenter.default.post(name: NSNotification.Name("RefreshDependentsView"), object: nil)
-            NotificationCenter.default.post(name: NSNotification.Name("RefreshRespondersView"), object: nil)
-
-            // Update in Firestore
-            updateContactInFirestore(updatedContact) { success, error in
-                if let error = error {
-                    print("Error updating contact ping status in Firestore: \(error.localizedDescription)")
-                    completion?(false, error)
-                    return
-                }
-
-                print("Contact ping status updated in Firestore")
-                completion?(true, nil)
-            }
-        } else {
-            let error = NSError(domain: "UserViewModel", code: 404, userInfo: [NSLocalizedDescriptionKey: "Contact not found"])
-            completion?(false, error)
-        }
-
-        updatePendingPingsCount()
+        handlePingOperation(operation: .respond, for: responder, completion: completion)
     }
 
     /// Clear an outgoing ping for a dependent
@@ -1200,49 +1526,27 @@ class UserViewModel: ObservableObject {
     ///   - contact: The contact whose ping to clear
     ///   - completion: Optional callback with success flag and error
     func clearOutgoingPing(for contact: Contact, completion: ((Bool, Error?) -> Void)? = nil) {
-        // Find the contact in the contacts list
-        if let index = contacts.firstIndex(where: { $0.id == contact.id }) {
-            // Clear outgoing ping
-            var updatedContact = contacts[index]
-            updatedContact.hasOutgoingPing = false
-            updatedContact.outgoingPingTimestamp = nil
-            contacts[index] = updatedContact
-            print("Cleared outgoing ping for contact: \(updatedContact.name)")
-
-            // Post notifications to refresh the UI
-            NotificationCenter.default.post(name: NSNotification.Name("RefreshDependentsView"), object: nil)
-            NotificationCenter.default.post(name: NSNotification.Name("RefreshRespondersView"), object: nil)
-
-            // Update in Firestore
-            updateContactInFirestore(updatedContact) { success, error in
-                if let error = error {
-                    print("Error updating contact ping status in Firestore: \(error.localizedDescription)")
-                    completion?(false, error)
-                    return
-                }
-
-                print("Contact ping status updated in Firestore")
-                completion?(true, nil)
-            }
-        } else {
-            let error = NSError(domain: "UserViewModel", code: 404, userInfo: [NSLocalizedDescriptionKey: "Contact not found"])
-            completion?(false, error)
-        }
+        handlePingOperation(operation: .clear, for: contact, completion: completion)
     }
 
     /// Respond to all pending pings
     /// - Parameter completion: Optional callback with success flag and error
     func respondToAllPings(completion: ((Bool, Error?) -> Void)? = nil) {
-        // Create a copy of the contacts array to avoid modifying while iterating
-        var updatedContacts = contacts
-        var contactsToUpdate: [Contact] = []
+        // Get all responders with incoming pings
+        let respondersWithPings = contacts.filter { $0.isResponder && $0.hasIncomingPing }
 
-        // Clear incoming pings for all responders
+        // If no contacts to update, return success
+        if respondersWithPings.isEmpty {
+            completion?(true, nil)
+            return
+        }
+
+        // Update all contacts locally first
+        var updatedContacts = contacts
         for i in 0..<updatedContacts.count {
             if updatedContacts[i].isResponder && updatedContacts[i].hasIncomingPing {
                 updatedContacts[i].hasIncomingPing = false
                 updatedContacts[i].incomingPingTimestamp = nil
-                contactsToUpdate.append(updatedContacts[i])
             }
         }
 
@@ -1251,23 +1555,17 @@ class UserViewModel: ObservableObject {
         updatePendingPingsCount()
 
         // Post notifications to refresh the UI
-        NotificationCenter.default.post(name: NSNotification.Name("RefreshDependentsView"), object: nil)
-        NotificationCenter.default.post(name: NSNotification.Name("RefreshRespondersView"), object: nil)
+        postUIRefreshNotifications()
 
-        // If no contacts to update, return success
-        if contactsToUpdate.isEmpty {
-            completion?(true, nil)
-            return
-        }
-
-        // Update all contacts in Firestore
+        // Update all contacts in Firestore using the cloud function
         let group = DispatchGroup()
         var errors: [Error] = []
 
-        for contact in contactsToUpdate {
+        for contact in respondersWithPings {
             group.enter()
-            updateContactInFirestore(contact) { success, error in
+            updateContactRelationship(contact, updatePings: true) { success, error in
                 if let error = error {
+                    print("Error updating ping status: \(error.localizedDescription)")
                     errors.append(error)
                 }
                 group.leave()
@@ -1308,7 +1606,12 @@ class UserViewModel: ObservableObject {
             FirestoreSchema.User.lastUpdated: FieldValue.serverTimestamp()
         ]
 
-        UserService.shared.updateCurrentUserData(data: updateData) { [weak self] success, error in
+        // Get reference to the user document
+        let db = Firestore.firestore()
+        let userRef = db.collection(FirestoreSchema.Collections.users).document(userId)
+
+        // Update the document
+        userRef.updateData(updateData) { [weak self] error in
             if let error = error {
                 print("Error updating alert status in Firestore: \(error.localizedDescription)")
 

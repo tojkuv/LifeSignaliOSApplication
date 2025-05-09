@@ -4,6 +4,7 @@ import UserNotifications
 import FirebaseCore
 import FirebaseFirestore
 import FirebaseMessaging
+import FirebaseFunctions
 
 /// Service class for Firebase functionality
 class FirebaseService: NSObject {
@@ -55,9 +56,21 @@ class FirebaseService: NSObject {
 
             // Set up Firebase Messaging
             setupFirebaseMessaging()
+
+            // Set up Firebase Functions
+            setupFirebaseFunctions()
         } else {
             print("Firebase initialization failed!")
         }
+    }
+
+    /// Set up Firebase Functions
+    private func setupFirebaseFunctions() {
+        // Configure Firebase Functions to use the us-central1 region by default
+        let _ = Functions.functions(region: "us-central1")
+
+        // Log that Functions is configured
+        print("Firebase Functions configured with default region: us-central1")
     }
 
     /// Set up Firebase Messaging

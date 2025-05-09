@@ -14,6 +14,9 @@ struct FirestoreSchema {
 
         /// Contacts subcollection
         static let contacts = "contacts"
+
+        /// QR code lookup collection
+        static let qrLookup = "qr_lookup"
     }
 
     /// User document schema
@@ -125,6 +128,15 @@ struct FirestoreSchema {
 
         /// Timestamp of outgoing ping
         static let outgoingPingTimestamp = "outgoingPingTimestamp"
+    }
+
+    /// QR code lookup document schema
+    struct QRLookup {
+        /// QR code ID
+        static let qrCodeId = "qrCodeId"
+
+        /// Timestamp when QR code was last updated
+        static let updatedAt = "updatedAt"
     }
 }
 
@@ -329,5 +341,22 @@ struct ContactDocument: Codable {
             incomingPingTimestamp: contact.incomingPingTimestamp,
             outgoingPingTimestamp: contact.outgoingPingTimestamp
         )
+    }
+}
+
+/// QR code lookup document model for Firestore
+struct QRLookupDocument: Codable {
+    /// QR code ID
+    var qrCodeId: String
+
+    /// Timestamp when QR code was last updated
+    var updatedAt: Date
+
+    /// Convert to Firestore data
+    func toFirestoreData() -> [String: Any] {
+        return [
+            FirestoreSchema.QRLookup.qrCodeId: qrCodeId,
+            FirestoreSchema.QRLookup.updatedAt: updatedAt
+        ]
     }
 }

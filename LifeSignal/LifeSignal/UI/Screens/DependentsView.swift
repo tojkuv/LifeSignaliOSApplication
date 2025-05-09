@@ -11,6 +11,9 @@ struct DependentsView: View {
     @State private var newContact: Contact? = nil
     @State private var pendingScannedCode: String? = nil
     @State private var showContactAddedAlert = false
+    @State private var showContactExistsAlert = false
+    @State private var showContactErrorAlert = false
+    @State private var contactErrorMessage = ""
     @State private var refreshID = UUID() // Used to force refresh the view
 
     enum SortMode: String, CaseIterable, Identifiable {
@@ -198,12 +201,27 @@ struct DependentsView: View {
                             isDependent: confirmedContact.isDependent
                         ) { success, error in
                             if success {
-                                // Show alert after sheet closes
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    showContactAddedAlert = true
+                                if let error = error as NSError?,
+                                   error.domain == "UserViewModel",
+                                   error.code == UserViewModel.ErrorCode.invalidArgument.rawValue,
+                                   error.localizedDescription.contains("already exists") {
+                                    // Contact already exists - show appropriate alert
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                        showContactExistsAlert = true
+                                    }
+                                } else {
+                                    // Contact was added successfully
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                        showContactAddedAlert = true
+                                    }
                                 }
                             } else if let error = error {
                                 print("Error adding contact: \(error.localizedDescription)")
+                                // Show error alert to the user
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    contactErrorMessage = error.localizedDescription
+                                    showContactErrorAlert = true
+                                }
                             }
                         }
                     }
@@ -233,6 +251,20 @@ struct DependentsView: View {
             Alert(
                 title: Text("Contact Added"),
                 message: Text("The contact was successfully added."),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+        .alert(isPresented: $showContactExistsAlert) {
+            Alert(
+                title: Text("Contact Already Exists"),
+                message: Text("This user is already in your contacts list."),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+        .alert(isPresented: $showContactErrorAlert) {
+            Alert(
+                title: Text("Error Adding Contact"),
+                message: Text(contactErrorMessage),
                 dismissButton: .default(Text("OK"))
             )
         }

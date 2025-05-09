@@ -87,38 +87,28 @@ struct LifeSignalApp: App {
 
     /// Check if the user needs onboarding
     private func checkUserOnboardingStatus(userId: String) {
-        UserService.shared.getCurrentUserData { userData, error in
-            if let error = error {
-                print("Error checking user data: \(error.localizedDescription)")
-
-                // If error is "User document not found", user needs onboarding
-                if (error as NSError).domain == "UserService" && (error as NSError).code == 404 {
-                    appState.isAuthenticated = true
-                    appState.needsOnboarding = true
-                } else {
-                    signOut()
-                }
+        userViewModel.loadUserData { success in
+            if !success {
+                print("Error loading user data, assuming user needs onboarding")
+                appState.isAuthenticated = true
+                appState.needsOnboarding = true
                 return
             }
 
-            if let userData = userData {
-                // User exists, check if profile is complete
-                let profileComplete = userData["profileComplete"] as? Bool ?? false
+            // Check if profile is complete based on UserViewModel data
+            let profileComplete = !userViewModel.name.isEmpty && !userViewModel.profileDescription.isEmpty
 
-                if profileComplete {
-                    // User is authenticated and has a complete profile
-                    appState.isAuthenticated = true
-                    appState.needsOnboarding = false
+            print("User document exists for ID: \(userId)")
+            print("Profile complete status: \(profileComplete)")
 
-                    // Update UserViewModel with user data
-                    userViewModel.updateFromFirestore(userData: userData)
-                } else {
-                    // User exists but profile is incomplete
-                    appState.isAuthenticated = true
-                    appState.needsOnboarding = true
-                }
+            if profileComplete {
+                // User is authenticated and has a complete profile
+                print("Profile is complete, skipping onboarding")
+                appState.isAuthenticated = true
+                appState.needsOnboarding = false
             } else {
-                // No user data, needs onboarding
+                // User exists but profile is incomplete
+                print("Profile is incomplete, showing onboarding")
                 appState.isAuthenticated = true
                 appState.needsOnboarding = true
             }

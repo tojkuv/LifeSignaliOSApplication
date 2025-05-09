@@ -19,6 +19,9 @@ struct HomeView: View {
     @State private var pendingScannedCode: String? = nil
     @State private var shareImage: ShareImage? = nil
     @State private var showContactAddedAlert = false
+    @State private var showContactExistsAlert = false
+    @State private var showContactErrorAlert = false
+    @State private var contactErrorMessage = ""
     @State private var showAlertToggleConfirmation = false
     @State private var pendingAlertToggleValue: Bool? = nil
 
@@ -270,14 +273,35 @@ struct HomeView: View {
         .background(Color(.systemBackground))
         .sheet(isPresented: $showQRScanner, onDismiss: {
             if let code = pendingScannedCode {
-                newContact = Contact(
-                    name: "Alex Morgan",
-                    phone: "555-123-4567",
-                    note: "I frequently go hiking alone on weekends at Mount Ridge trails. If unresponsive, check the main trail parking lot for my blue Honda Civic (plate XYZ-123). I carry an emergency beacon in my red backpack. I have a peanut allergy and keep an EpiPen in my backpack.",
-                    qrCodeId: code,
-                    isResponder: false,
-                    isDependent: false
-                )
+                // Look up the user by QR code
+                userViewModel.lookupUserByQRCode(code) { userData, error in
+                    if let error = error {
+                        print("Error looking up user by QR code: \(error.localizedDescription)")
+                        return
+                    }
+
+                    guard let userData = userData else {
+                        print("No user found with QR code: \(code)")
+                        return
+                    }
+
+                    // Extract user data
+                    let name = userData[FirestoreSchema.User.name] as? String ?? "Unknown Name"
+                    let phone = userData[FirestoreSchema.User.phoneNumber] as? String ?? ""
+                    let note = userData[FirestoreSchema.User.note] as? String ?? ""
+
+                    // Create a new contact with the user data
+                    DispatchQueue.main.async {
+                        self.newContact = Contact(
+                            name: name,
+                            phone: phone,
+                            note: note,
+                            qrCodeId: code,
+                            isResponder: false,
+                            isDependent: false
+                        )
+                    }
+                }
                 pendingScannedCode = nil
             }
         }) {
@@ -288,10 +312,38 @@ struct HomeView: View {
         .sheet(item: $newContact, onDismiss: { newContact = nil }) { contact in
             AddContactSheet(
                 contact: .constant(contact),
-                onAdd: { _ in
-                    // Show alert after sheet closes
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        showContactAddedAlert = true
+                onAdd: { confirmedContact in
+                    // Use the QR code to add the contact via Firebase
+                    if let qrCodeId = confirmedContact.qrCodeId {
+                        userViewModel.addContact(
+                            qrCodeId: qrCodeId,
+                            isResponder: confirmedContact.isResponder,
+                            isDependent: confirmedContact.isDependent
+                        ) { success, error in
+                            if success {
+                                if let error = error as NSError?,
+                                   error.domain == "UserViewModel",
+                                   error.code == UserViewModel.ErrorCode.invalidArgument.rawValue,
+                                   error.localizedDescription.contains("already exists") {
+                                    // Contact already exists - show appropriate alert
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                        showContactExistsAlert = true
+                                    }
+                                } else {
+                                    // Contact was added successfully
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                        showContactAddedAlert = true
+                                    }
+                                }
+                            } else if let error = error {
+                                print("Error adding contact: \(error.localizedDescription)")
+                                // Show error alert to the user
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    contactErrorMessage = error.localizedDescription
+                                    showContactErrorAlert = true
+                                }
+                            }
+                        }
                     }
                 },
                 onClose: { newContact = nil }
@@ -356,6 +408,20 @@ struct HomeView: View {
             Alert(
                 title: Text("Contact Added"),
                 message: Text("The contact was successfully added."),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+        .alert(isPresented: $showContactExistsAlert) {
+            Alert(
+                title: Text("Contact Already Exists"),
+                message: Text("This user is already in your contacts list."),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+        .alert(isPresented: $showContactErrorAlert) {
+            Alert(
+                title: Text("Error Adding Contact"),
+                message: Text(contactErrorMessage),
                 dismissButton: .default(Text("OK"))
             )
         }

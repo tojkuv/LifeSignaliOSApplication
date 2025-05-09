@@ -158,47 +158,46 @@ struct OnboardingView: View {
     }
 
     private func completeOnboarding() {
-        guard let userId = AuthenticationService.shared.getCurrentUserID() else {
-            errorMessage = "User not authenticated"
-            showError = true
-            return
-        }
-
         isLoading = true
 
-        // Create user data
-        let userData: [String: Any] = [
-            "name": name.trimmingCharacters(in: .whitespacesAndNewlines),
-            "note": emergencyNote.trimmingCharacters(in: .whitespacesAndNewlines),
-            "profileComplete": true,
-            "createdAt": FieldValue.serverTimestamp(),
-            "lastSignInTime": FieldValue.serverTimestamp(),
-            "qrCodeId": UUID().uuidString,
-            "notificationEnabled": true
+        // Update UserViewModel with the user input
+        userViewModel.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        userViewModel.profileDescription = emergencyNote.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Create a new QR code ID
+        userViewModel.qrCodeId = UUID().uuidString
+
+        // Ensure profile is marked as complete
+        let additionalData: [String: Any] = [
+            FirestoreSchema.User.profileComplete: true
         ]
 
-        // Save to Firestore
-        UserService.shared.createUserDataIfNeeded(data: userData) { success, error in
+        // Create the user document using UserViewModel
+        // This will also create the QR lookup document and empty contacts collection
+        userViewModel.saveUserData(additionalData: additionalData) { success, error in
+            if let error = error {
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                    self.errorMessage = "Error creating user profile: \(error.localizedDescription)"
+                    self.showError = true
+                }
+                return
+            }
+
+            if !success {
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                    self.errorMessage = "Failed to create user profile"
+                    self.showError = true
+                }
+                return
+            }
+
             DispatchQueue.main.async {
-                isLoading = false
+                self.isLoading = false
 
-                if let error = error {
-                    errorMessage = "Error creating user profile: \(error.localizedDescription)"
-                    showError = true
-                    return
-                }
-
-                if success {
-                    // Update UserViewModel with the new data
-                    userViewModel.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-                    userViewModel.profileDescription = emergencyNote.trimmingCharacters(in: .whitespacesAndNewlines)
-
-                    // Mark onboarding as complete
-                    needsOnboarding = false
-                } else {
-                    errorMessage = "Failed to create user profile"
-                    showError = true
-                }
+                // Mark onboarding as complete
+                self.needsOnboarding = false
             }
         }
     }

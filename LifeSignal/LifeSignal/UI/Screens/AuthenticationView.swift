@@ -253,126 +253,39 @@ struct AuthenticationView: View {
 
                 print("Session updated successfully")
 
-                // For test users, create test user document if needed
-                if phoneNumber == "+11234567890" || phoneNumber == "+16505553434" {
-                    print("This is a test user (\(phoneNumber)), creating test user document if needed")
-
-                    // First try to get the user document to see if it exists
-                    UserService.shared.getCurrentUserData { userData, error in
-                        if let error = error {
-                            print("Error checking for existing user document: \(error.localizedDescription)")
-
-                            // If document doesn't exist, create it
-                            if (error as NSError).domain == "UserService" && (error as NSError).code == 404 {
-                                print("User document not found, creating test user document")
-
-                                UserService.shared.createTestUserIfNeeded { success, createError in
-                                    if let createError = createError {
-                                        print("Error creating test user: \(createError.localizedDescription)")
-
-                                        // Check if it's a permission error
-                                        if let nsError = createError as NSError?, nsError.domain == "FIRFirestoreErrorDomain" {
-                                            print("Firestore error code: \(nsError.code)")
-                                            print("Firestore error details: \(nsError.userInfo)")
-                                        }
-                                    } else if success {
-                                        print("Test user document created successfully")
-
-                                        // Check if QR code was generated
-                                        UserService.shared.getCurrentUserData { userData, _ in
-                                            if let userData = userData, let qrCodeId = userData["qrCodeId"] as? String {
-                                                print("Verified QR code ID exists for test user: \(qrCodeId)")
-                                            } else {
-                                                print("WARNING: QR code ID not found in test user document!")
-                                            }
-
-                                            // Continue with getting user data regardless
-                                            self.continueWithUserData()
-                                        }
-                                    } else {
-                                        // Continue with getting user data
-                                        self.continueWithUserData()
-                                    }
-                                }
-                            } else {
-                                // Some other error occurred
-                                self.continueWithUserData()
-                            }
-                        } else if userData != nil {
-                            print("User document already exists, skipping test user creation")
-                            self.continueWithUserData()
-                        } else {
-                            print("No user data returned but no error either, creating test user document")
-                            UserService.shared.createTestUserIfNeeded { success, createError in
-                                if let createError = createError {
-                                    print("Error creating test user: \(createError.localizedDescription)")
-                                    self.continueWithUserData()
-                                } else if success {
-                                    print("Test user document created successfully")
-
-                                    // Check if QR code was generated
-                                    UserService.shared.getCurrentUserData { userData, _ in
-                                        if let userData = userData, let qrCodeId = userData["qrCodeId"] as? String {
-                                            print("Verified QR code ID exists for test user: \(qrCodeId)")
-                                        } else {
-                                            print("WARNING: QR code ID not found in test user document!")
-                                        }
-
-                                        // Continue with getting user data regardless
-                                        self.continueWithUserData()
-                                    }
-                                } else {
-                                    self.continueWithUserData()
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // For regular users, just get the user data
-                    print("Not a test user, continuing with regular user data")
-                    continueWithUserData()
-                }
+                // Continue with getting user data
+                print("Continuing with user data")
+                continueWithUserData()
             }
         }
     }
 
     /// Continue the authentication flow by checking user data
     private func continueWithUserData() {
-        // Check if user has a document
-        UserService.shared.getCurrentUserData { userData, error in
+        // Load user data using UserViewModel
+        userViewModel.loadUserData { success in
             DispatchQueue.main.async {
                 self.isLoading = false
 
-                if let error = error {
-                    // If error is "User document not found", user needs onboarding
-                    if (error as NSError).domain == "UserService" && (error as NSError).code == 404 {
-                        self.needsOnboarding = true
-                        self.isAuthenticated = true
-                    } else {
-                        self.errorMessage = "Error checking user data: \(error.localizedDescription)"
-                        self.showError = true
-                    }
+                if !success {
+                    // If loading failed, user needs onboarding
+                    print("Failed to load user data, assuming user needs onboarding")
+                    self.needsOnboarding = true
+                    self.isAuthenticated = true
                     return
                 }
 
-                if let userData = userData {
-                    // User exists, check if profile is complete
-                    let profileComplete = userData["profileComplete"] as? Bool ?? false
+                // Check if profile is complete based on UserViewModel data
+                let profileComplete = !self.userViewModel.name.isEmpty && !self.userViewModel.profileDescription.isEmpty
 
-                    if profileComplete {
-                        // User is authenticated and has a complete profile
-                        self.needsOnboarding = false
-                        self.isAuthenticated = true
-
-                        // Update UserViewModel with user data
-                        self.userViewModel.updateFromFirestore(userData: userData)
-                    } else {
-                        // User exists but profile is incomplete
-                        self.needsOnboarding = true
-                        self.isAuthenticated = true
-                    }
+                if profileComplete {
+                    // User is authenticated and has a complete profile
+                    print("Profile is complete, skipping onboarding")
+                    self.needsOnboarding = false
+                    self.isAuthenticated = true
                 } else {
-                    // No user data, needs onboarding
+                    // User exists but profile is incomplete
+                    print("Profile is incomplete, showing onboarding")
                     self.needsOnboarding = true
                     self.isAuthenticated = true
                 }

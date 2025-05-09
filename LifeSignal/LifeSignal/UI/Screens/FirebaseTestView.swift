@@ -456,7 +456,21 @@ struct FirebaseTestView: View {
         userDocStatus = "Checking user document..."
         userDocTestSuccess = false
 
-        UserService.shared.getCurrentUserData { data, error in
+        // Get the current user ID
+        guard let userId = AuthenticationService.shared.getCurrentUserID() else {
+            DispatchQueue.main.async {
+                userDocStatus = "Error: User ID not available"
+                isTestingUserDoc = false
+            }
+            return
+        }
+
+        // Get reference to the user document
+        let db = Firestore.firestore()
+        let userRef = db.collection(FirestoreSchema.Collections.users).document(userId)
+
+        // Get the document
+        userRef.getDocument { document, error in
             DispatchQueue.main.async {
                 if let error = error {
                     userDocStatus = "Error checking user document: \(error.localizedDescription)"
@@ -464,7 +478,7 @@ struct FirebaseTestView: View {
                     return
                 }
 
-                if let data = data {
+                if let document = document, document.exists, let data = document.data() {
                     // Format the data for display
                     let formattedData = formatUserData(data)
                     userDocStatus = "User document found!\n\n\(formattedData)"
@@ -498,17 +512,92 @@ struct FirebaseTestView: View {
             "testUser": true
         ]
 
-        UserService.shared.createUserDataIfNeeded(data: defaultUserData) { success, error in
+        // Get the current user ID
+        guard let userId = AuthenticationService.shared.getCurrentUserID() else {
             DispatchQueue.main.async {
-                if let error = error {
-                    userDocStatus = "Error creating user document: \(error.localizedDescription)"
-                    isTestingUserDoc = false
-                    return
-                }
+                userDocStatus = "Error: User ID not available"
+                isTestingUserDoc = false
+            }
+            return
+        }
 
-                if success {
-                    // Document created or already exists, now get the data
-                    UserService.shared.getCurrentUserData { data, error in
+        // Get reference to the user document
+        let db = Firestore.firestore()
+        let userRef = db.collection(FirestoreSchema.Collections.users).document(userId)
+
+        // Check if the document exists
+        userRef.getDocument { document, error in
+            if let error = error {
+                DispatchQueue.main.async {
+                    userDocStatus = "Error checking user document: \(error.localizedDescription)"
+                    isTestingUserDoc = false
+                }
+                return
+            }
+
+            // Add required fields to the default data
+            var userData = defaultUserData
+            userData["uid"] = userId
+            userData["qrCodeId"] = UUID().uuidString
+            userData["checkInInterval"] = 24 * 60 * 60 // 24 hours in seconds
+            userData["lastCheckedIn"] = FieldValue.serverTimestamp()
+            userData["lastUpdated"] = FieldValue.serverTimestamp()
+
+            // Add phone number if available
+            if let phoneNumber = Auth.auth().currentUser?.phoneNumber {
+                userData["phoneNumber"] = phoneNumber
+            } else {
+                userData["phoneNumber"] = "" // Required field
+            }
+
+            // If document exists, update it, otherwise create it
+            if document?.exists == true {
+                // Update existing document
+                userRef.updateData(userData) { error in
+                    if let error = error {
+                        DispatchQueue.main.async {
+                            userDocStatus = "Error updating user document: \(error.localizedDescription)"
+                            isTestingUserDoc = false
+                        }
+                        return
+                    }
+
+                    // After successful update, get the document
+                    userRef.getDocument { document, error in
+                        DispatchQueue.main.async {
+                            if let error = error {
+                                userDocStatus = "Document updated but error retrieving it: \(error.localizedDescription)"
+                                isTestingUserDoc = false
+                                return
+                            }
+
+                            if let document = document, document.exists, let data = document.data() {
+                                // Format the data for display
+                                let formattedData = formatUserData(data)
+                                userDocStatus = "User document updated successfully!\n\n\(formattedData)"
+                                userDocTestSuccess = true
+                                userData = data
+                            } else {
+                                userDocStatus = "Document updated but no data returned."
+                            }
+
+                            isTestingUserDoc = false
+                        }
+                    }
+                }
+            } else {
+                // Create new document
+                userRef.setData(userData) { error in
+                    if let error = error {
+                        DispatchQueue.main.async {
+                            userDocStatus = "Error creating user document: \(error.localizedDescription)"
+                            isTestingUserDoc = false
+                        }
+                        return
+                    }
+
+                    // After successful creation, get the document
+                    userRef.getDocument { document, error in
                         DispatchQueue.main.async {
                             if let error = error {
                                 userDocStatus = "Document created but error retrieving it: \(error.localizedDescription)"
@@ -516,10 +605,10 @@ struct FirebaseTestView: View {
                                 return
                             }
 
-                            if let data = data {
+                            if let document = document, document.exists, let data = document.data() {
                                 // Format the data for display
                                 let formattedData = formatUserData(data)
-                                userDocStatus = "User document created/updated successfully!\n\n\(formattedData)"
+                                userDocStatus = "User document created successfully!\n\n\(formattedData)"
                                 userDocTestSuccess = true
                                 userData = data
                             } else {
@@ -529,9 +618,6 @@ struct FirebaseTestView: View {
                             isTestingUserDoc = false
                         }
                     }
-                } else {
-                    userDocStatus = "Failed to create user document."
-                    isTestingUserDoc = false
                 }
             }
         }
