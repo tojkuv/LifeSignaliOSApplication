@@ -5,10 +5,11 @@ import UIKit
 
 struct RespondersView: View {
     @EnvironmentObject var userViewModel: UserViewModel
+    @EnvironmentObject var contactsViewModel: ContactsViewModel
     @State private var showQRScanner = false
     @State private var showCheckInConfirmation = false
     @State private var showCameraDeniedAlert = false
-    @State private var newContact: Contact? = nil
+    @State private var newContact: ContactReference? = nil
     @State private var pendingScannedCode: String? = nil
     @State private var showContactAddedAlert = false
     @State private var showContactExistsAlert = false
@@ -17,8 +18,8 @@ struct RespondersView: View {
     @State private var refreshID = UUID() // Used to force refresh the view
 
     /// Computed property to sort responders with pending pings at the top
-    private var sortedResponders: [Contact] {
-        let responders = userViewModel.responders
+    private var sortedResponders: [ContactReference] {
+        let responders = contactsViewModel.responders
 
         // Safety check - if responders is empty, return an empty array
         if responders.isEmpty {
@@ -42,7 +43,7 @@ struct RespondersView: View {
 
     var body: some View {
         VStack {
-            if userViewModel.isLoadingContacts {
+            if contactsViewModel.isLoadingContacts {
                 // Show loading indicator
                 VStack {
                     ProgressView()
@@ -52,7 +53,7 @@ struct RespondersView: View {
                         .padding(.top, 8)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = userViewModel.contactError {
+            } else if let error = contactsViewModel.contactError {
                 // Show error view
                 VStack(spacing: 16) {
                     Image(systemName: "exclamationmark.triangle")
@@ -67,7 +68,7 @@ struct RespondersView: View {
                         .foregroundColor(.secondary)
 
                     Button("Retry") {
-                        userViewModel.forceReloadContacts()
+                        contactsViewModel.forceReloadContacts()
                     }
                     .padding()
                     .background(Color.blue)
@@ -79,7 +80,7 @@ struct RespondersView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 12) {
-                        if userViewModel.responders.isEmpty {
+                        if contactsViewModel.responders.isEmpty {
                             Text("No responders yet")
                                 .foregroundColor(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .center)
@@ -108,16 +109,16 @@ struct RespondersView: View {
             refreshID = UUID()
 
             // Only reload contacts if they haven't been loaded yet or if there was an error
-            if userViewModel.contacts.isEmpty || userViewModel.contactError != nil {
-                userViewModel.forceReloadContacts()
+            if contactsViewModel.contacts.isEmpty || contactsViewModel.contactError != nil {
+                contactsViewModel.forceReloadContacts()
             }
         }
         .toolbar {
             // Respond to All button (only shown when there are pending pings)
-            if userViewModel.pendingPingsCount > 0 {
+            if contactsViewModel.pendingPingsCount > 0 {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(action: {
-                        userViewModel.respondToAllPings() { success, error in
+                        contactsViewModel.respondToAllPings() { success, error in
                             if let error = error {
                                 print("Error responding to all pings: \(error.localizedDescription)")
                                 return
@@ -156,7 +157,7 @@ struct RespondersView: View {
         .sheet(isPresented: $showQRScanner, onDismiss: {
             if let code = pendingScannedCode {
                 // Look up the user by QR code
-                userViewModel.lookupUserByQRCode(code) { userData, error in
+                contactsViewModel.lookupUserByQRCode(code) { userData, error in
                     if let error = error {
                         print("Error looking up user by QR code: \(error.localizedDescription)")
                         return
@@ -167,12 +168,12 @@ struct RespondersView: View {
                         return
                     }
 
-                    // Create a new contact with the user data from the UserViewModel
+                    // Create a new contact with the user data
                     DispatchQueue.main.async {
-                        self.newContact = Contact.createDefault(
-                            name: userData["name"] as? String ?? "Unknown Name",
-                            phone: userData["phoneNumber"] as? String ?? "",
-                            note: userData["note"] as? String ?? "",
+                        self.newContact = ContactReference.createDefault(
+                            name: userData[UserFields.name] as? String ?? "Unknown Name",
+                            phone: userData[UserFields.phoneNumber] as? String ?? "",
+                            note: userData[UserFields.note] as? String ?? "",
                             qrCodeId: code,
                             isResponder: true,
                             isDependent: false
@@ -190,19 +191,19 @@ struct RespondersView: View {
             newContact = nil
         }) { contact in
             AddContactSheet(
-                contact: .constant(contact),
+                contact: contact,
                 onAdd: { confirmedContact in
                     // Use the QR code to add the contact via Firebase
                     if let qrCodeId = confirmedContact.qrCodeId {
-                        userViewModel.addContact(
+                        contactsViewModel.addContact(
                             qrCodeId: qrCodeId,
                             isResponder: confirmedContact.isResponder,
                             isDependent: confirmedContact.isDependent
                         ) { success, error in
                             if success {
                                 if let error = error as NSError?,
-                                   error.domain == "UserViewModel",
-                                   error.code == UserViewModel.ErrorCode.invalidArgument.rawValue,
+                                   error.domain == "ContactsViewModel",
+                                   error.code == 400,
                                    error.localizedDescription.contains("already exists") {
                                     // Contact already exists - show appropriate alert
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -275,10 +276,10 @@ struct RespondersView: View {
 }
 
 struct ResponderCard: View {
-    let contact: Contact
+    let contact: ContactReference
     let refreshID: UUID // Used to force refresh when ping state changes
-    @EnvironmentObject var userViewModel: UserViewModel
-    @State private var selectedContactID: ContactID?
+    @EnvironmentObject var contactsViewModel: ContactsViewModel
+    @State private var selectedContactID: String?
 
     var statusText: String {
         if contact.hasIncomingPing, let pingTime = contact.incomingPingTimestamp {
@@ -296,7 +297,7 @@ struct ResponderCard: View {
             trailingContent: {
                 if contact.hasIncomingPing {
                     Button(action: {
-                        userViewModel.respondToPing(from: contact) { success, error in
+                        contactsViewModel.respondToPing(from: contact) { success, error in
                             if let error = error {
                                 print("Error responding to ping: \(error.localizedDescription)")
                                 return
@@ -321,12 +322,12 @@ struct ResponderCard: View {
                 }
             },
             onTap: {
-                selectedContactID = ContactID(id: contact.id)
+                selectedContactID = contact.id
             }
         )
         .sheet(item: $selectedContactID) { id in
-            if let contact = userViewModel.getContact(by: id.id) {
-                ContactDetailsSheet(contact: contact)
+            if let _ = contactsViewModel.getContact(by: id) {
+                ContactDetailsSheet(contactID: id)
             }
         }
     }

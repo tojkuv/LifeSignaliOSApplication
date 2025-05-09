@@ -6,6 +6,7 @@ import FirebaseFirestore
 
 struct HomeView: View {
     @EnvironmentObject private var userViewModel: UserViewModel
+    @EnvironmentObject private var contactsViewModel: ContactsViewModel
     @State private var showQRScanner = false
     @State private var showIntervalPicker = false
     @State private var showInstructions = false
@@ -15,7 +16,7 @@ struct HomeView: View {
     @State private var isImageReady = false
     @State private var isGeneratingImage = false
     @State private var showCameraDeniedAlert = false
-    @State private var newContact: Contact? = nil
+    @State private var newContact: ContactReference? = nil
     @State private var pendingScannedCode: String? = nil
     @State private var shareImage: ShareImage? = nil
     @State private var showContactAddedAlert = false
@@ -274,7 +275,7 @@ struct HomeView: View {
         .sheet(isPresented: $showQRScanner, onDismiss: {
             if let code = pendingScannedCode {
                 // Look up the user by QR code
-                userViewModel.lookupUserByQRCode(code) { userData, error in
+                contactsViewModel.lookupUserByQRCode(code) { userData, error in
                     if let error = error {
                         print("Error looking up user by QR code: \(error.localizedDescription)")
                         return
@@ -285,17 +286,12 @@ struct HomeView: View {
                         return
                     }
 
-                    // Extract user data
-                    let name = userData[FirestoreSchema.User.name] as? String ?? "Unknown Name"
-                    let phone = userData[FirestoreSchema.User.phoneNumber] as? String ?? ""
-                    let note = userData[FirestoreSchema.User.note] as? String ?? ""
-
                     // Create a new contact with the user data
                     DispatchQueue.main.async {
-                        self.newContact = Contact(
-                            name: name,
-                            phone: phone,
-                            note: note,
+                        self.newContact = ContactReference.createDefault(
+                            name: userData[UserFields.name] as? String ?? "Unknown Name",
+                            phone: userData[UserFields.phoneNumber] as? String ?? "",
+                            note: userData[UserFields.note] as? String ?? "",
                             qrCodeId: code,
                             isResponder: false,
                             isDependent: false
@@ -311,19 +307,19 @@ struct HomeView: View {
         }
         .sheet(item: $newContact, onDismiss: { newContact = nil }) { contact in
             AddContactSheet(
-                contact: .constant(contact),
+                contact: contact,
                 onAdd: { confirmedContact in
                     // Use the QR code to add the contact via Firebase
                     if let qrCodeId = confirmedContact.qrCodeId {
-                        userViewModel.addContact(
+                        contactsViewModel.addContact(
                             qrCodeId: qrCodeId,
                             isResponder: confirmedContact.isResponder,
                             isDependent: confirmedContact.isDependent
                         ) { success, error in
                             if success {
                                 if let error = error as NSError?,
-                                   error.domain == "UserViewModel",
-                                   error.code == UserViewModel.ErrorCode.invalidArgument.rawValue,
+                                   error.domain == "ContactsViewModel",
+                                   error.code == 400,
                                    error.localizedDescription.contains("already exists") {
                                     // Contact already exists - show appropriate alert
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -456,6 +452,7 @@ struct HomeView: View {
 struct InstructionsView: View {
     @Environment(\.presentationMode) var presentationMode
     @EnvironmentObject private var userViewModel: UserViewModel
+    @EnvironmentObject private var contactsViewModel: ContactsViewModel
     @State private var showCheckInConfirmation = false
 
     var body: some View {

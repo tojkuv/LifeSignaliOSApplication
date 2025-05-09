@@ -5,10 +5,11 @@ import UIKit
 
 struct DependentsView: View {
     @EnvironmentObject private var userViewModel: UserViewModel
+    @EnvironmentObject private var contactsViewModel: ContactsViewModel
     @State private var showQRScanner = false
     @State private var showCheckInConfirmation = false
     @State private var showCameraDeniedAlert = false
-    @State private var newContact: Contact? = nil
+    @State private var newContact: ContactReference? = nil
     @State private var pendingScannedCode: String? = nil
     @State private var showContactAddedAlert = false
     @State private var showContactExistsAlert = false
@@ -26,9 +27,9 @@ struct DependentsView: View {
     @State private var sortMode: SortMode = .countdown
 
     /// Computed property to sort dependents based on the selected sort mode
-    private var sortedDependents: [Contact] {
+    private var sortedDependents: [ContactReference] {
         // This will be recalculated when refreshID changes
-        let dependents = userViewModel.dependents
+        let dependents = contactsViewModel.dependents
 
         // Partition into manual alert, non-responsive, pinged, and responsive
         let (manualAlert, rest1) = dependents.partitioned { $0.manualAlertActive }
@@ -49,7 +50,7 @@ struct DependentsView: View {
         }
 
         // Sort responsive contacts based on the selected sort mode
-        let sortedResponsive: [Contact]
+        let sortedResponsive: [ContactReference]
         switch sortMode {
         case .recentlyAdded:
             sortedResponsive = responsive.sorted { $0.addedAt > $1.addedAt }
@@ -66,8 +67,18 @@ struct DependentsView: View {
                     return false // $1 comes first if it has nil lastCheckIn
                 }
 
-                // Normal case: sort by time remaining
-                return $0.timeRemaining < $1.timeRemaining
+                // Calculate time remaining for each contact
+                guard let lastCheckIn0 = $0.lastCheckIn, let interval0 = $0.interval,
+                      let lastCheckIn1 = $1.lastCheckIn, let interval1 = $1.interval else {
+                    return $0.name < $1.name // Fallback to alphabetical if missing data
+                }
+
+                let expirationTime0 = lastCheckIn0.addingTimeInterval(interval0)
+                let expirationTime1 = lastCheckIn1.addingTimeInterval(interval1)
+                let timeRemaining0 = expirationTime0.timeIntervalSince(Date())
+                let timeRemaining1 = expirationTime1.timeIntervalSince(Date())
+
+                return timeRemaining0 < timeRemaining1
             }
 
         case .alphabetical:
@@ -80,7 +91,7 @@ struct DependentsView: View {
 
     var body: some View {
         VStack {
-            if userViewModel.isLoadingContacts {
+            if contactsViewModel.isLoadingContacts {
                 // Show loading indicator
                 VStack {
                     ProgressView()
@@ -90,7 +101,7 @@ struct DependentsView: View {
                         .padding(.top, 8)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = userViewModel.contactError {
+            } else if let error = contactsViewModel.contactError {
                 // Show error view
                 VStack(spacing: 16) {
                     Image(systemName: "exclamationmark.triangle")
@@ -105,7 +116,7 @@ struct DependentsView: View {
                         .foregroundColor(.secondary)
 
                     Button("Retry") {
-                        userViewModel.forceReloadContacts()
+                        contactsViewModel.forceReloadContacts()
                     }
                     .padding()
                     .background(Color.blue)
@@ -117,7 +128,7 @@ struct DependentsView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 12) {
-                        if userViewModel.dependents.isEmpty {
+                        if contactsViewModel.dependents.isEmpty {
                             Text("No dependents yet")
                                 .foregroundColor(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .center)
@@ -145,8 +156,8 @@ struct DependentsView: View {
             refreshID = UUID()
 
             // Only reload contacts if they haven't been loaded yet or if there was an error
-            if userViewModel.contacts.isEmpty || userViewModel.contactError != nil {
-                userViewModel.forceReloadContacts()
+            if contactsViewModel.contacts.isEmpty || contactsViewModel.contactError != nil {
+                contactsViewModel.forceReloadContacts()
             }
         }
         .toolbar {
@@ -192,7 +203,7 @@ struct DependentsView: View {
         .sheet(isPresented: $showQRScanner, onDismiss: {
             if let code = pendingScannedCode {
                 // Look up the user by QR code
-                userViewModel.lookupUserByQRCode(code) { userData, error in
+                contactsViewModel.lookupUserByQRCode(code) { userData, error in
                     if let error = error {
                         print("Error looking up user by QR code: \(error.localizedDescription)")
                         return
@@ -203,12 +214,12 @@ struct DependentsView: View {
                         return
                     }
 
-                    // Create a new contact with the user data from the UserViewModel
+                    // Create a new contact with the user data
                     DispatchQueue.main.async {
-                        self.newContact = Contact.createDefault(
-                            name: userData["name"] as? String ?? "Unknown Name",
-                            phone: userData["phoneNumber"] as? String ?? "",
-                            note: userData["note"] as? String ?? "",
+                        self.newContact = ContactReference.createDefault(
+                            name: userData[UserFields.name] as? String ?? "Unknown Name",
+                            phone: userData[UserFields.phoneNumber] as? String ?? "",
+                            note: userData[UserFields.note] as? String ?? "",
                             qrCodeId: code,
                             isResponder: false,
                             isDependent: true
@@ -226,19 +237,19 @@ struct DependentsView: View {
             newContact = nil
         }) { contact in
             AddContactSheet(
-                contact: .constant(contact),
+                contact: contact,
                 onAdd: { confirmedContact in
                     // Use the QR code to add the contact via Firebase
                     if let qrCodeId = confirmedContact.qrCodeId {
-                        userViewModel.addContact(
+                        contactsViewModel.addContact(
                             qrCodeId: qrCodeId,
                             isResponder: confirmedContact.isResponder,
                             isDependent: confirmedContact.isDependent
                         ) { success, error in
                             if success {
                                 if let error = error as NSError?,
-                                   error.domain == "UserViewModel",
-                                   error.code == UserViewModel.ErrorCode.invalidArgument.rawValue,
+                                   error.domain == "ContactsViewModel",
+                                   error.code == 400,
                                    error.localizedDescription.contains("already exists") {
                                     // Contact already exists - show appropriate alert
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -307,14 +318,14 @@ struct DependentsView: View {
 }
 
 struct DependentCard: View {
-    @EnvironmentObject private var userViewModel: UserViewModel
-    let contact: Contact
+    @EnvironmentObject private var contactsViewModel: ContactsViewModel
+    let contact: ContactReference
     let refreshID: UUID // Used to force refresh when ping state changes
 
     // Use @State for alert control
     @State private var showPingAlert = false
     @State private var isPingConfirmation = false
-    @State private var selectedContactID: ContactID?
+    @State private var selectedContactID: String?
 
     var statusColor: Color {
         if contact.manualAlertActive {
@@ -367,12 +378,12 @@ struct DependentCard: View {
                 }
             },
             onTap: {
-                selectedContactID = ContactID(id: contact.id)
+                selectedContactID = contact.id
             }
         )
         .sheet(item: $selectedContactID) { id in
-            if let contact = userViewModel.getContact(by: id.id) {
-                ContactDetailsSheet(contact: contact)
+            if let contact = contactsViewModel.getContact(by: id) {
+                ContactDetailsSheet(contactID: id)
             }
         }
         .alert(isPresented: $showPingAlert) {
@@ -388,7 +399,7 @@ struct DependentCard: View {
                     message: Text("Do you want to clear the pending ping to this contact?"),
                     primaryButton: .default(Text("Clear")) {
                         // Use the view model to clear the ping with completion handler
-                        userViewModel.clearPing(for: contact) { success, error in
+                        contactsViewModel.clearPing(for: contact) { success, error in
                             if let error = error {
                                 print("Error clearing ping: \(error.localizedDescription)")
                                 return
@@ -407,7 +418,7 @@ struct DependentCard: View {
                     message: Text("Are you sure you want to ping this contact?"),
                     primaryButton: .default(Text("Ping")) {
                         // Use the view model to ping the dependent with completion handler
-                        userViewModel.pingDependent(contact) { success, error in
+                        contactsViewModel.pingDependent(contact) { success, error in
                             if let error = error {
                                 print("Error sending ping: \(error.localizedDescription)")
                                 return

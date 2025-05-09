@@ -9,7 +9,7 @@ enum ContactCardContext {
 
 /// A reusable card view for displaying contact information
 struct ContactCardView: View {
-    let contact: Contact
+    let contact: ContactReference
     let statusColor: Color
     let statusText: String
     let trailingContent: AnyView?
@@ -17,7 +17,7 @@ struct ContactCardView: View {
     let context: ContactCardContext
 
     init(
-        contact: Contact,
+        contact: ContactReference,
         statusColor: Color = .secondary,
         statusText: String? = nil,
         context: ContactCardContext = .responder,
@@ -72,7 +72,7 @@ struct ContactCardView: View {
 #Preview(traits: .sizeThatFitsLayout) {
     VStack(spacing: 16) {
         ContactCardView(
-            contact: Contact(
+            contact: ContactReference.createDefault(
                 name: "Sarah Chen",
                 phone: "555-123-4567",
                 note: "Emergency contact",
@@ -85,7 +85,7 @@ struct ContactCardView: View {
 
         // Example with empty status text - name should be vertically centered
         ContactCardView(
-            contact: Contact(
+            contact: ContactReference.createDefault(
                 name: "James Wilson",
                 phone: "555-987-6543",
                 note: "Friend",
@@ -96,31 +96,36 @@ struct ContactCardView: View {
             context: .responder
         )
 
+        // Contact with manual alert - should have red background
+        let alertContact = ContactReference.createDefault(
+            name: "Robert Taylor",
+            phone: "555-222-0001",
+            note: "Solo backpacker",
+            isResponder: false,
+            isDependent: true
+        )
+        alertContact.manualAlertActive = true
+
         ContactCardView(
-            contact: Contact(
-                name: "Robert Taylor",
-                phone: "555-222-0001",
-                note: "Solo backpacker",
-                isResponder: false,
-                isDependent: true,
-                manualAlertActive: true
-            ),
+            contact: alertContact,
             statusColor: .red,
             statusText: "Alert Active",
             context: .dependent
         )
 
         // Responder with incoming ping - should have blue background in responder context
+        let pingContact = ContactReference.createDefault(
+            name: "Daniel Kim",
+            phone: "555-444-3333",
+            note: "Mountain guide",
+            isResponder: true,
+            isDependent: false
+        )
+        pingContact.hasIncomingPing = true
+        pingContact.incomingPingTimestamp = Date().addingTimeInterval(-1800)
+
         ContactCardView(
-            contact: Contact(
-                name: "Daniel Kim",
-                phone: "555-444-3333",
-                note: "Mountain guide",
-                isResponder: true,
-                isDependent: false,
-                hasIncomingPing: true,
-                incomingPingTimestamp: Date().addingTimeInterval(-1800)
-            ),
+            contact: pingContact,
             statusColor: .blue,
             statusText: "Pinged 30m ago",
             context: .responder,
@@ -137,16 +142,18 @@ struct ContactCardView: View {
         )
 
         // Dual role contact with incoming ping - should NOT have blue background in dependent context
+        let dualRoleContact = ContactReference.createDefault(
+            name: "Mia Anderson",
+            phone: "555-777-8888",
+            note: "Dual role contact",
+            isResponder: true,
+            isDependent: true
+        )
+        dualRoleContact.hasIncomingPing = true
+        dualRoleContact.incomingPingTimestamp = Date().addingTimeInterval(-3600)
+
         ContactCardView(
-            contact: Contact(
-                name: "Mia Anderson",
-                phone: "555-777-8888",
-                note: "Dual role contact",
-                isResponder: true,
-                isDependent: true,
-                hasIncomingPing: true,
-                incomingPingTimestamp: Date().addingTimeInterval(-3600)
-            ),
+            contact: dualRoleContact,
             statusColor: .secondary,
             statusText: "1d 12h",
             context: .dependent

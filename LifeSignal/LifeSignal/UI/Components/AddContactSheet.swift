@@ -1,26 +1,18 @@
 import SwiftUI
 
 struct AddContactSheet: View {
-    @Binding var contact: Contact
-    var onAdd: ((Contact) -> Void)? = nil
+    @State var contact: ContactReference
+    var onAdd: ((ContactReference) -> Void)? = nil
     var onClose: (() -> Void)? = nil
-    @State private var isResponder: Bool
-    @State private var isDependent: Bool
     @State private var showRoleAlert: Bool = false
-    @State private var lastValidRoles: (Bool, Bool)
-    @State private var pendingToggleRevert: RoleChanged?
     @FocusState private var focusedField: Field?
 
     enum Field { case name, phone, note }
-    private enum RoleChanged { case dependent, responder }
 
-    init(contact: Binding<Contact>, onAdd: ((Contact) -> Void)? = nil, onClose: (() -> Void)? = nil) {
-        self._contact = contact
+    init(contact: ContactReference, onAdd: ((ContactReference) -> Void)? = nil, onClose: (() -> Void)? = nil) {
+        self._contact = State(initialValue: contact)
         self.onAdd = onAdd
         self.onClose = onClose
-        self._isResponder = State(initialValue: contact.wrappedValue.isResponder)
-        self._isDependent = State(initialValue: contact.wrappedValue.isDependent)
-        self._lastValidRoles = State(initialValue: (contact.wrappedValue.isResponder, contact.wrappedValue.isDependent))
     }
 
     var body: some View {
@@ -86,7 +78,7 @@ struct AddContactSheet: View {
                                         .font(.body)
                                         .foregroundColor(.primary)
                                     Spacer()
-                                    Toggle("", isOn: $isDependent)
+                                    Toggle("", isOn: $contact.isDependent)
                                         .labelsHidden()
                                 }
                                 .padding(.vertical, 12)
@@ -97,7 +89,7 @@ struct AddContactSheet: View {
                                         .font(.body)
                                         .foregroundColor(.primary)
                                     Spacer()
-                                    Toggle("", isOn: $isResponder)
+                                    Toggle("", isOn: $contact.isResponder)
                                         .labelsHidden()
                                 }
                                 .padding(.vertical, 12)
@@ -107,7 +99,7 @@ struct AddContactSheet: View {
                             .cornerRadius(12)
                             .padding(.horizontal)
 
-                            if !isDependent && !isResponder {
+                            if !contact.isDependent && !contact.isResponder {
                                 Text("You must select at least one role.")
                                     .font(.caption)
                                     .foregroundColor(.red)
@@ -124,15 +116,13 @@ struct AddContactSheet: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: {
-                        contact.isResponder = isResponder
-                        contact.isDependent = isDependent
                         onAdd?(contact)
                         onClose?()
                     }) {
                         Text("Add")
                             .font(.headline)
                     }
-                    .disabled(!isDependent && !isResponder)
+                    .disabled(!contact.isDependent && !contact.isResponder)
                 }
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(action: { onClose?() }) {
@@ -147,12 +137,12 @@ struct AddContactSheet: View {
 }
 
 #Preview {
-    @Previewable @State var contact = Contact(
+    let contact = ContactReference.createDefault(
         name: "Cameron Lee",
         phone: "555-123-4567",
         note: "I live alone and work from home. If I don't respond, please check my apartment first (spare key under blue flowerpot). Medical info: allergic to penicillin, blood type O+. My emergency contact is my brother David (555-888-9999). I have a cat named Whiskers who needs feeding twice daily.",
         isResponder: false,
         isDependent: false
     )
-    return AddContactSheet(contact: $contact)
+    return AddContactSheet(contact: contact)
 }

@@ -3,7 +3,7 @@ import Foundation
 import UIKit
 
 struct ContactView: View {
-    let contact: Contact
+    let contact: ContactReference
 
     var body: some View {
         NavigationStack {
