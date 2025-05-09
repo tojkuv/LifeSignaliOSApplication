@@ -4,7 +4,7 @@ import UIKit
 
 /// The main content view of the app
 struct ContentView: View {
-    @EnvironmentObject private var userViewModel: UserViewModel
+    @EnvironmentObject private var userProfileViewModel: UserProfileViewModel
     @EnvironmentObject private var appState: AppState
     @State private var selectedTab = 0
 
@@ -30,8 +30,8 @@ struct ContentView: View {
             .tabItem {
                 Label("Responders", systemImage: "person.2.fill")
             }
-            .if(userViewModel.pendingPingsCount > 0) { view in
-                view.badge(userViewModel.pendingPingsCount)
+            .if(userProfileViewModel.pendingPingsCount > 0) { view in
+                view.badge(userProfileViewModel.pendingPingsCount)
             }
             .tag(1)
 
@@ -55,8 +55,8 @@ struct ContentView: View {
             .tabItem {
                 Label("Dependents", systemImage: "person.3.fill")
             }
-            .if(userViewModel.nonResponsiveDependentsCount > 0) { view in
-                view.badge(userViewModel.nonResponsiveDependentsCount)
+            .if(userProfileViewModel.nonResponsiveDependentsCount > 0) { view in
+                view.badge(userProfileViewModel.nonResponsiveDependentsCount)
             }
             .tag(3)
 
@@ -78,7 +78,7 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
-        .environmentObject(UserViewModel())
+        .environmentObject(UserProfileViewModel())
         .environmentObject(AppState())
 }
 

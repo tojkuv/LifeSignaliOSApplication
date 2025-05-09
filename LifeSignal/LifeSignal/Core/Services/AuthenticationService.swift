@@ -14,7 +14,7 @@ class AuthenticationService {
     }
 
     /// Current authenticated user
-    private(set) var currentUser: User?
+    private(set) var currentUser: FirebaseAuth.User?
 
     /// Flag indicating if a user is authenticated
     var isAuthenticated: Bool {

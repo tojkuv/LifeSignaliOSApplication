@@ -236,6 +236,15 @@ struct UserDocument {
 /// It is used throughout the app to display user information and manage user settings.
 /// The document ID in Firestore is the user ID, so there's no need for a separate uid field in the document.
 struct User: Identifiable, Equatable, Hashable {
+    // Hashable conformance
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+
+    // Equatable conformance
+    static func == (lhs: User, rhs: User) -> Bool {
+        return lhs.id == rhs.id
+    }
     /// Unique identifier for the user (Firestore document ID)
     let id: String
 

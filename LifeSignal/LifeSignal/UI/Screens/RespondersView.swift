@@ -4,7 +4,7 @@ import AVFoundation
 import UIKit
 
 struct RespondersView: View {
-    @EnvironmentObject var userViewModel: UserViewModel
+    @EnvironmentObject var userProfileViewModel: UserProfileViewModel
     @EnvironmentObject var contactsViewModel: ContactsViewModel
     @State private var showQRScanner = false
     @State private var showCheckInConfirmation = false
@@ -235,7 +235,7 @@ struct RespondersView: View {
                 title: Text("Confirm Check-in"),
                 message: Text("Are you sure you want to check in now? This will reset your timer."),
                 primaryButton: .default(Text("Check In")) {
-                    userViewModel.updateLastCheckedIn()
+                    userProfileViewModel.updateLastCheckedIn()
                 },
                 secondaryButton: .cancel()
             )

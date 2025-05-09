@@ -4,7 +4,7 @@ import FirebaseCore
 import FirebaseAuth
 
 struct ProfileView: View {
-    @EnvironmentObject private var userViewModel: UserViewModel
+    @EnvironmentObject private var userProfileViewModel: UserProfileViewModel
     @Environment(\.presentationMode) private var presentationMode
     @EnvironmentObject private var appState: AppState
     @State private var showEditPhoneSheet = false
@@ -26,7 +26,7 @@ struct ProfileView: View {
                         .fill(Color(UIColor.systemBackground))
                         .frame(width: 80, height: 80)
                         .overlay(
-                            Text(String(userViewModel.name.prefix(1)))
+                            Text(String(userProfileViewModel.name.prefix(1)))
                                 .foregroundColor(.blue)
                                 .font(.title)
                         )
@@ -34,9 +34,9 @@ struct ProfileView: View {
                             Circle()
                                 .stroke(Color.blue, lineWidth: 2)
                         )
-                    Text(userViewModel.name)
+                    Text(userProfileViewModel.name)
                         .font(.headline)
-                    Text(userViewModel.phone.isEmpty ? "(954) 234-5678" : userViewModel.phone)
+                    Text(userProfileViewModel.phone.isEmpty ? "(954) 234-5678" : userProfileViewModel.phone)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
@@ -44,11 +44,11 @@ struct ProfileView: View {
 
                 // Description Setting Card
                 Button(action: {
-                    newDescription = userViewModel.profileDescription
+                    newDescription = userProfileViewModel.profileDescription
                     showEditDescriptionSheet = true
                 }) {
                     HStack(alignment: .top) {
-                        Text(userViewModel.profileDescription.isEmpty ? "This is simply a note for contacts." : userViewModel.profileDescription)
+                        Text(userProfileViewModel.profileDescription.isEmpty ? "This is simply a note for contacts." : userProfileViewModel.profileDescription)
                             .font(.body)
                             .foregroundColor(.primary)
                             .multilineTextAlignment(.leading)
@@ -81,7 +81,7 @@ struct ProfileView: View {
                     }
                     Divider().padding(.leading)
                     Button(action: {
-                        newName = userViewModel.name
+                        newName = userProfileViewModel.name
                         showEditNameSheet = true
                     }) {
                         HStack {
@@ -187,10 +187,10 @@ struct ProfileView: View {
                         showEditPhoneSheet = false
                     },
                     trailing: Button("Save") {
-                        userViewModel.phone = newPhone
+                        userProfileViewModel.phone = newPhone
                         showEditPhoneSheet = false
                     }
-                    .disabled(newPhone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newPhone == userViewModel.phone)
+                    .disabled(newPhone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newPhone == userProfileViewModel.phone)
                 )
             }
             .presentationDetents([.medium])
@@ -200,7 +200,7 @@ struct ProfileView: View {
                 title: Text("Confirm Check-in"),
                 message: Text("Are you sure you want to check in now? This will reset your timer."),
                 primaryButton: .default(Text("Check In")) {
-                    userViewModel.updateLastCheckedIn()
+                    userProfileViewModel.updateLastCheckedIn()
                 },
                 secondaryButton: .cancel()
             )
@@ -244,7 +244,7 @@ struct ProfileView: View {
                     },
                     trailing: Button("Save") {
                         // Use the new updateEmergencyNote method to persist to Firestore
-                        userViewModel.updateEmergencyNote(newDescription) { success, error in
+                        userProfileViewModel.updateEmergencyNote(newDescription) { success, error in
                             if let error = error {
                                 print("Error updating emergency note: \(error.localizedDescription)")
                                 // Could show an alert here if needed
@@ -252,7 +252,7 @@ struct ProfileView: View {
                         }
                         showEditDescriptionSheet = false
                     }
-                    .disabled(newDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newDescription == userViewModel.profileDescription)
+                    .disabled(newDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newDescription == userProfileViewModel.profileDescription)
                 )
             }
             .presentationDetents([.medium])
@@ -285,7 +285,7 @@ struct ProfileView: View {
                     },
                     trailing: Button("Save") {
                         // Use the new updateName method to persist to Firestore
-                        userViewModel.updateName(newName) { success, error in
+                        userProfileViewModel.updateName(newName) { success, error in
                             if let error = error {
                                 print("Error updating name: \(error.localizedDescription)")
                                 // Could show an alert here if needed
@@ -293,7 +293,7 @@ struct ProfileView: View {
                         }
                         showEditNameSheet = false
                     }
-                    .disabled(newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newName == userViewModel.name)
+                    .disabled(newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newName == userProfileViewModel.name)
                 )
             }
             .presentationDetents([.medium])

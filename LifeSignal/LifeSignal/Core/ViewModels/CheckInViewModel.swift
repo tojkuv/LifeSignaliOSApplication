@@ -112,10 +112,10 @@ class CheckInViewModel: ObservableObject {
 
         // Get reference to the user document
         let db = Firestore.firestore()
-        let userRef = db.collection(FirestoreCollections.users).document(userId)
+        let userRef = db.collection("users").document(userId)
 
         // Get the document
-        userRef.getDocument { [weak self] document, error in
+        userRef.getDocument { [weak self] (document: DocumentSnapshot?, error: Error?) in
             guard let self = self else { return }
 
             if let error = error {
@@ -208,7 +208,7 @@ class CheckInViewModel: ObservableObject {
 
         // Get reference to the user document
         let db = Firestore.firestore()
-        let userRef = db.collection(FirestoreCollections.users).document(userId)
+        let userRef = db.collection("users").document(userId)
 
         // Update the document
         userRef.updateData(updateData) { error in
@@ -262,7 +262,7 @@ class CheckInViewModel: ObservableObject {
 
         // Get reference to the user document
         let db = Firestore.firestore()
-        let userRef = db.collection(FirestoreCollections.users).document(userId)
+        let userRef = db.collection("users").document(userId)
 
         // Update the document
         userRef.updateData(updateData) { error in

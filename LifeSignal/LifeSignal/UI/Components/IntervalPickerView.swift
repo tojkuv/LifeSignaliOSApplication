@@ -2,7 +2,7 @@ import SwiftUI
 
 struct IntervalPickerView: View {
     @Environment(\.presentationMode) var presentationMode
-    @EnvironmentObject private var userViewModel: UserViewModel
+    @EnvironmentObject private var userProfileViewModel: UserProfileViewModel
 
     let interval: TimeInterval
     let onSave: (TimeInterval, @escaping (Bool, Error?) -> Void) -> Void

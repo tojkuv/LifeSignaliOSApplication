@@ -190,7 +190,7 @@ struct QRScannerView: View {
 
 struct MyQRCodeSheet: View {
     @Environment(\.presentationMode) private var presentationMode
-    @EnvironmentObject private var userViewModel: UserViewModel
+    @EnvironmentObject private var userProfileViewModel: UserProfileViewModel
     var body: some View {
         VStack(spacing: 24) {
             HStack {
@@ -204,9 +204,9 @@ struct MyQRCodeSheet: View {
                 }
             }
             QRCodeCardView(
-                name: userViewModel.name,
+                name: userProfileViewModel.name,
                 subtitle: "LifeSignal contact",
-                qrCodeId: userViewModel.qrCodeId,
+                qrCodeId: userProfileViewModel.qrCodeId,
                 footer: "Let others scan this code to add you as a contact."
             )
             .padding(.top, 8)

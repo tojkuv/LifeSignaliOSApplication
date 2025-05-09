@@ -5,7 +5,7 @@ import UIKit
 import FirebaseFirestore
 
 struct HomeView: View {
-    @EnvironmentObject private var userViewModel: UserViewModel
+    @EnvironmentObject private var userProfileViewModel: UserProfileViewModel
     @EnvironmentObject private var contactsViewModel: ContactsViewModel
     @State private var showQRScanner = false
     @State private var showIntervalPicker = false
@@ -31,10 +31,10 @@ struct HomeView: View {
 
         isImageReady = false
         isGeneratingImage = true
-        let qrContent = userViewModel.qrCodeId
+        let qrContent = userProfileViewModel.qrCodeId
         let content = AnyView(
             QRCodeShareView(
-                name: userViewModel.name,
+                name: userProfileViewModel.name,
                 subtitle: "LifeSignal contact",
                 qrCodeId: qrContent,
                 footer: "Use LifeSignal's QR code scanner to add this contact"
@@ -85,15 +85,15 @@ struct HomeView: View {
             LazyVStack(spacing: 16) {
                 // QR Code Card with avatar above (overlapping, improved layout)
                 QRCodeCardView(
-                    name: userViewModel.name,
+                    name: userProfileViewModel.name,
                     subtitle: "LifeSignal contact",
-                    qrCodeId: userViewModel.qrCodeId,
+                    qrCodeId: userProfileViewModel.qrCodeId,
                     footer: "Your QR code is unique. If you share it with someone, they can scan it and add you as a contact"
                 )
                 .padding(EdgeInsets(top: 16, leading: 0, bottom: 0, trailing: 0))
 
                 Button("Reset QR Code") {
-                    userViewModel.generateNewQRCode()
+                    userProfileViewModel.generateNewQRCode()
                 }
                 .foregroundColor(.blue)
                 .buttonStyle(PlainButtonStyle())
@@ -149,7 +149,7 @@ struct HomeView: View {
                                     Text("Check-in time interval")
                                         .foregroundColor(.primary)
                                     Spacer()
-                                    Text("\(formatInterval(userViewModel.checkInInterval))")
+                                    Text("\(formatInterval(userProfileViewModel.checkInInterval))")
                                         .foregroundColor(.secondary)
                                     Image(systemName: "chevron.right")
                                         .foregroundColor(.secondary)
@@ -176,13 +176,13 @@ struct HomeView: View {
                             .padding(.horizontal)
                             .padding(.leading)
                         Picker("Check-in notification", selection: Binding(
-                            get: { self.userViewModel.notificationLeadTime },
+                            get: { self.userProfileViewModel.notificationLeadTime },
                             set: { newValue in
                                 // Update local state immediately for responsive UI
-                                self.userViewModel.notificationLeadTime = newValue
+                                self.userProfileViewModel.notificationLeadTime = newValue
 
                                 // Save to Firestore in the background
-                                self.userViewModel.setNotificationLeadTime(newValue) { success, error in
+                                self.userProfileViewModel.setNotificationLeadTime(newValue) { success, error in
                                     if let error = error {
                                         // Just log the error, don't show to user
                                         print("Error saving notification lead time: \(error.localizedDescription)")
@@ -202,10 +202,10 @@ struct HomeView: View {
                             .frame(maxWidth: .infinity, alignment: .center)
                     }
                     .onAppear {
-                        if ![30, 120].contains(userViewModel.notificationLeadTime) {
+                        if ![30, 120].contains(userProfileViewModel.notificationLeadTime) {
                             // Set default value and save to Firestore in the background
-                            userViewModel.notificationLeadTime = 30
-                            userViewModel.setNotificationLeadTime(30) { _, _ in }
+                            userProfileViewModel.notificationLeadTime = 30
+                            userProfileViewModel.setNotificationLeadTime(30) { _, _ in }
                         }
                     }
                     // Section: Help/Instructions
@@ -231,7 +231,7 @@ struct HomeView: View {
 
                     // Alert Toggle Row (new component)
                     Button(action: {
-                        pendingAlertToggleValue = !userViewModel.sendAlertActive
+                        pendingAlertToggleValue = !userProfileViewModel.sendAlertActive
                         showAlertToggleConfirmation = true
                     }) {
                         HStack {
@@ -243,28 +243,28 @@ struct HomeView: View {
                                 .foregroundColor(.primary)
                                 .fontWeight(.medium)
                             Spacer()
-                            Text(userViewModel.sendAlertActive ? "Active" : "Inactive")
-                                .foregroundColor(userViewModel.sendAlertActive ? .red : .secondary)
-                                .fontWeight(userViewModel.sendAlertActive ? .semibold : .medium)
+                            Text(userProfileViewModel.sendAlertActive ? "Active" : "Inactive")
+                                .foregroundColor(userProfileViewModel.sendAlertActive ? .red : .secondary)
+                                .fontWeight(userProfileViewModel.sendAlertActive ? .semibold : .medium)
                         }
                         .frame(height: 35)
                         .padding(.vertical, 12)
                         .padding(.horizontal)
                         .frame(maxWidth: .infinity)
                         .background(
-                            userViewModel.sendAlertActive ?
+                            userProfileViewModel.sendAlertActive ?
                                 Color.red.opacity(0.15) :
                                 Color(UIColor.systemGray5)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 12)
-                                .stroke(userViewModel.sendAlertActive ? Color.red.opacity(0.3) : Color.clear, lineWidth: 2)
+                                .stroke(userProfileViewModel.sendAlertActive ? Color.red.opacity(0.3) : Color.clear, lineWidth: 2)
                         )
                         .cornerRadius(12)
                     }
                     .buttonStyle(PlainButtonStyle())
                     .padding(.horizontal)
-                    .shadow(color: userViewModel.sendAlertActive ? Color.red.opacity(0.1) : Color.clear, radius: 4, x: 0, y: 2)
+                    .shadow(color: userProfileViewModel.sendAlertActive ? Color.red.opacity(0.1) : Color.clear, radius: 4, x: 0, y: 2)
 
                 }
                 .frame(maxWidth: .infinity, alignment: .center)
@@ -347,7 +347,7 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showIntervalPicker) {
             IntervalPickerView(
-                interval: userViewModel.checkInInterval,
+                interval: userProfileViewModel.checkInInterval,
                 onSave: { newInterval, completion in
                     // Create data to update in Firestore
                     let updateData: [String: Any] = [
@@ -356,11 +356,11 @@ struct HomeView: View {
                     ]
 
                     // Save to Firestore
-                    userViewModel.saveUserData(additionalData: updateData) { success, error in
+                    userProfileViewModel.saveUserData(additionalData: updateData) { success, error in
                         if success {
                             // Update local property if Firestore update was successful
                             DispatchQueue.main.async {
-                                userViewModel.checkInInterval = newInterval
+                                userProfileViewModel.checkInInterval = newInterval
                             }
                         }
                         // Pass result back to the IntervalPickerView
@@ -368,7 +368,7 @@ struct HomeView: View {
                     }
                 }
             )
-            .environmentObject(userViewModel)
+            .environmentObject(userProfileViewModel)
             .presentationDetents([.medium])
         }
         .sheet(isPresented: $showInstructions) {
@@ -380,7 +380,7 @@ struct HomeView: View {
         .onAppear {
             generateQRCodeImage()
         }
-        .onChange(of: userViewModel.qrCodeId) { oldValue, newValue in
+        .onChange(of: userProfileViewModel.qrCodeId) { oldValue, newValue in
             generateQRCodeImage()
         }
         .alert(isPresented: $showCheckInConfirmation) {
@@ -388,7 +388,7 @@ struct HomeView: View {
                 title: Text("Confirm Check-in"),
                 message: Text("Are you sure you want to check in now? This will reset your timer."),
                 primaryButton: .default(Text("Check In")) {
-                    userViewModel.updateLastCheckedIn()
+                    userProfileViewModel.updateLastCheckedIn()
                 },
                 secondaryButton: .cancel()
             )
@@ -423,11 +423,11 @@ struct HomeView: View {
         }
         .alert(isPresented: $showAlertToggleConfirmation) {
             Alert(
-                title: Text(userViewModel.sendAlertActive ? "Deactivate Alert?" : "Send Alert?"),
-                message: Text(userViewModel.sendAlertActive ? "Are you sure you want to deactivate the alert to responders?" : "Are you sure you want to send an alert to responders?"),
-                primaryButton: .destructive(Text(userViewModel.sendAlertActive ? "Deactivate" : "Activate")) {
+                title: Text(userProfileViewModel.sendAlertActive ? "Deactivate Alert?" : "Send Alert?"),
+                message: Text(userProfileViewModel.sendAlertActive ? "Are you sure you want to deactivate the alert to responders?" : "Are you sure you want to send an alert to responders?"),
+                primaryButton: .destructive(Text(userProfileViewModel.sendAlertActive ? "Deactivate" : "Activate")) {
                     if let value = pendingAlertToggleValue {
-                        userViewModel.sendAlertActive = value
+                        userProfileViewModel.sendAlertActive = value
                     }
                     pendingAlertToggleValue = nil
                 },
@@ -451,7 +451,7 @@ struct HomeView: View {
 // MARK: - Instructions
 struct InstructionsView: View {
     @Environment(\.presentationMode) var presentationMode
-    @EnvironmentObject private var userViewModel: UserViewModel
+    @EnvironmentObject private var userProfileViewModel: UserProfileViewModel
     @EnvironmentObject private var contactsViewModel: ContactsViewModel
     @State private var showCheckInConfirmation = false
 

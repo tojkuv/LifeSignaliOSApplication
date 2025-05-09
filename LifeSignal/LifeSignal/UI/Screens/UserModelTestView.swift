@@ -3,22 +3,22 @@ import FirebaseFirestore
 import FirebaseAuth
 
 struct UserModelTestView: View {
-    @EnvironmentObject private var userViewModel: UserViewModel
-    
+    @EnvironmentObject private var userProfileViewModel: UserProfileViewModel
+
     // Test status states
     @State private var userDataStatus: String = "User data not tested yet"
     @State private var contactsStatus: String = "Contacts not tested yet"
     @State private var checkInStatus: String = "Check-in not tested yet"
     @State private var qrCodeStatus: String = "QR code not tested yet"
     @State private var notificationStatus: String = "Notification settings not tested yet"
-    
+
     // Test success states
     @State private var userDataTestSuccess: Bool = false
     @State private var contactsTestSuccess: Bool = false
     @State private var checkInTestSuccess: Bool = false
     @State private var qrCodeTestSuccess: Bool = false
     @State private var notificationTestSuccess: Bool = false
-    
+
     // Loading states
     @State private var isTestingUserData: Bool = false
     @State private var isTestingContacts: Bool = false
@@ -26,10 +26,10 @@ struct UserModelTestView: View {
     @State private var isTestingQRCode: Bool = false
     @State private var isTestingNotification: Bool = false
     @State private var isRefreshing: Bool = false
-    
+
     // Navigation state
     @State private var showMainApp: Bool = false
-    
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -38,44 +38,44 @@ struct UserModelTestView: View {
                         .font(.largeTitle)
                         .fontWeight(.bold)
                         .padding(.top, 8)
-                    
+
                     Divider()
-                    
+
                     // User Data Status
                     statusSection(
                         title: "User Data Status:",
                         status: userDataStatus,
                         isSuccess: userDataTestSuccess
                     )
-                    
+
                     // Contacts Status
                     statusSection(
                         title: "Contacts Status:",
                         status: contactsStatus,
                         isSuccess: contactsTestSuccess
                     )
-                    
+
                     // Check-in Status
                     statusSection(
                         title: "Check-in Status:",
                         status: checkInStatus,
                         isSuccess: checkInTestSuccess
                     )
-                    
+
                     // QR Code Status
                     statusSection(
                         title: "QR Code Status:",
                         status: qrCodeStatus,
                         isSuccess: qrCodeTestSuccess
                     )
-                    
+
                     // Notification Settings Status
                     statusSection(
                         title: "Notification Settings Status:",
                         status: notificationStatus,
                         isSuccess: notificationTestSuccess
                     )
-                    
+
                     // Button layout with better spacing and responsiveness
                     VStack(spacing: 16) {
                         // Refresh Status Button
@@ -86,7 +86,7 @@ struct UserModelTestView: View {
                             isLoading: isRefreshing,
                             action: refreshStatus
                         )
-                        
+
                         // Test User Data Button
                         actionButton(
                             title: "Test User Data",
@@ -96,7 +96,7 @@ struct UserModelTestView: View {
                             action: testUserData,
                             isDisabled: isTestingUserData
                         )
-                        
+
                         // Test Contacts Button
                         actionButton(
                             title: "Test Contacts",
@@ -106,7 +106,7 @@ struct UserModelTestView: View {
                             action: testContacts,
                             isDisabled: isTestingContacts
                         )
-                        
+
                         // Test Check-in Button
                         actionButton(
                             title: "Test Check-in",
@@ -116,7 +116,7 @@ struct UserModelTestView: View {
                             action: testCheckIn,
                             isDisabled: isTestingCheckIn
                         )
-                        
+
                         // Test QR Code Button
                         actionButton(
                             title: "Test QR Code",
@@ -126,7 +126,7 @@ struct UserModelTestView: View {
                             action: testQRCode,
                             isDisabled: isTestingQRCode
                         )
-                        
+
                         // Test Notification Settings Button
                         actionButton(
                             title: "Test Notification Settings",
@@ -136,7 +136,7 @@ struct UserModelTestView: View {
                             action: testNotificationSettings,
                             isDisabled: isTestingNotification
                         )
-                        
+
                         // Continue to Main App Button
                         actionButton(
                             title: "Continue to App",
@@ -147,7 +147,7 @@ struct UserModelTestView: View {
                     }
                     .padding(.horizontal)
                     .padding(.top, 8)
-                    
+
                     // Add some bottom padding to prevent clipping
                     Spacer()
                         .frame(height: 20)
@@ -159,20 +159,20 @@ struct UserModelTestView: View {
             }
             .navigationDestination(isPresented: $showMainApp) {
                 ContentView()
-                    .environmentObject(userViewModel)
+                    .environmentObject(userProfileViewModel)
                     .navigationBarBackButtonHidden(true)
             }
         }
     }
-    
+
     // MARK: - Helper Views
-    
+
     private func statusSection(title: String, status: String, isSuccess: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(title)
                     .font(.headline)
-                
+
                 if isSuccess {
                     HStack {
                         Image(systemName: "checkmark.circle.fill")
@@ -187,7 +187,7 @@ struct UserModelTestView: View {
                     .cornerRadius(8)
                 }
             }
-            
+
             ScrollView {
                 Text(status)
                     .font(.system(.body, design: .monospaced))
@@ -200,7 +200,7 @@ struct UserModelTestView: View {
         }
         .padding(.horizontal)
     }
-    
+
     private func actionButton(
         title: String,
         icon: String,
@@ -227,14 +227,14 @@ struct UserModelTestView: View {
         }
         .disabled(isDisabled)
     }
-    
+
     // MARK: - Test Methods
-    
+
     private func refreshStatus() {
         withAnimation {
             isRefreshing = true
         }
-        
+
         // Check if user is authenticated
         if !AuthenticationService.shared.isAuthenticated {
             userDataStatus = "Error: User not authenticated. Please sign in first."
@@ -242,7 +242,7 @@ struct UserModelTestView: View {
             checkInStatus = "Error: User not authenticated. Please sign in first."
             qrCodeStatus = "Error: User not authenticated. Please sign in first."
             notificationStatus = "Error: User not authenticated. Please sign in first."
-            
+
             // Simulate refresh animation
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 withAnimation {
@@ -251,29 +251,29 @@ struct UserModelTestView: View {
             }
             return
         }
-        
+
         // Load user data
-        userViewModel.loadUserData { success in
+        userProfileViewModel.loadUserData { success in
             if success {
-                userDataStatus = "User data loaded successfully.\n\nName: \(self.userViewModel.name)\nPhone: \(self.userViewModel.phone)\nQR Code ID: \(self.userViewModel.qrCodeId)\nProfile Description: \(self.userViewModel.profileDescription)"
+                userDataStatus = "User data loaded successfully.\n\nName: \(self.userProfileViewModel.name)\nPhone: \(self.userProfileViewModel.phone)\nQR Code ID: \(self.userProfileViewModel.qrCodeId)\nProfile Description: \(self.userProfileViewModel.profileDescription)"
                 userDataTestSuccess = true
             } else {
                 userDataStatus = "Failed to load user data."
                 userDataTestSuccess = false
             }
-            
+
             // Load contacts
-            self.userViewModel.loadContactsFromFirestore { success in
+            self.userProfileViewModel.loadContactsFromFirestore { success in
                 if success {
-                    let responders = self.userViewModel.responders.count
-                    let dependents = self.userViewModel.dependents.count
-                    contactsStatus = "Contacts loaded successfully.\n\nTotal Contacts: \(self.userViewModel.contacts.count)\nResponders: \(responders)\nDependents: \(dependents)"
+                    let responders = self.userProfileViewModel.responders.count
+                    let dependents = self.userProfileViewModel.dependents.count
+                    contactsStatus = "Contacts loaded successfully.\n\nTotal Contacts: \(self.userProfileViewModel.contacts.count)\nResponders: \(responders)\nDependents: \(dependents)"
                     contactsTestSuccess = true
                 } else {
                     contactsStatus = "Failed to load contacts."
                     contactsTestSuccess = false
                 }
-                
+
                 // Simulate refresh animation
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     withAnimation {
@@ -283,25 +283,25 @@ struct UserModelTestView: View {
             }
         }
     }
-    
+
     private func testUserData() {
         guard AuthenticationService.shared.isAuthenticated else {
             userDataStatus = "Error: User not authenticated. Please sign in first."
             return
         }
-        
+
         isTestingUserData = true
         userDataStatus = "Testing user data..."
         userDataTestSuccess = false
-        
+
         // Save user data
         let testName = "Test User \(Int.random(in: 100...999))"
         let testNote = "This is a test note updated at \(Date())"
-        
-        userViewModel.name = testName
-        userViewModel.profileDescription = testNote
-        
-        userViewModel.saveUserData { success, error in
+
+        userProfileViewModel.name = testName
+        userProfileViewModel.profileDescription = testNote
+
+        userProfileViewModel.saveUserData { success, error in
             if let error = error {
                 DispatchQueue.main.async {
                     userDataStatus = "Error saving user data: \(error.localizedDescription)"
@@ -309,13 +309,13 @@ struct UserModelTestView: View {
                 }
                 return
             }
-            
+
             if success {
                 // Now try to load the data back
-                userViewModel.loadUserData { loadSuccess in
+                userProfileViewModel.loadUserData { loadSuccess in
                     DispatchQueue.main.async {
                         if loadSuccess {
-                            userDataStatus = "User data test successful!\n\nSaved and loaded user data:\nName: \(userViewModel.name)\nNote: \(userViewModel.profileDescription)"
+                            userDataStatus = "User data test successful!\n\nSaved and loaded user data:\nName: \(userProfileViewModel.name)\nNote: \(userProfileViewModel.profileDescription)"
                             userDataTestSuccess = true
                         } else {
                             userDataStatus = "Saved user data but failed to load it back."
@@ -332,22 +332,22 @@ struct UserModelTestView: View {
             }
         }
     }
-    
+
     private func testContacts() {
         guard AuthenticationService.shared.isAuthenticated else {
             contactsStatus = "Error: User not authenticated. Please sign in first."
             return
         }
-        
+
         isTestingContacts = true
         contactsStatus = "Testing contacts..."
         contactsTestSuccess = false
-        
+
         // Create a test contact
         let testContactName = "Test Contact \(Int.random(in: 100...999))"
         let testContactQRCode = UUID().uuidString
-        
-        userViewModel.addContact(qrCodeId: testContactQRCode, isResponder: true) { success, error in
+
+        userProfileViewModel.addContact(qrCodeId: testContactQRCode, isResponder: true) { success, error in
             if let error = error {
                 DispatchQueue.main.async {
                     contactsStatus = "Error adding contact: \(error.localizedDescription)"
@@ -355,15 +355,15 @@ struct UserModelTestView: View {
                 }
                 return
             }
-            
+
             if success {
                 // Find the contact we just added
-                if let addedContact = userViewModel.contacts.first(where: { $0.qrCodeId == testContactQRCode }) {
+                if let addedContact = userProfileViewModel.contacts.first(where: { $0.qrCodeId == testContactQRCode }) {
                     // Update the contact name
                     var updatedContact = addedContact
                     updatedContact.name = testContactName
-                    
-                    userViewModel.updateContactRole(
+
+                    userProfileViewModel.updateContactRole(
                         contact: updatedContact,
                         wasResponder: updatedContact.isResponder,
                         wasDependent: updatedContact.isDependent
@@ -375,14 +375,14 @@ struct UserModelTestView: View {
                             }
                             return
                         }
-                        
+
                         if updateSuccess {
                             // Now load contacts to verify
-                            userViewModel.loadContactsFromFirestore { loadSuccess in
+                            userProfileViewModel.loadContactsFromFirestore { loadSuccess in
                                 DispatchQueue.main.async {
                                     if loadSuccess {
                                         // Check if our contact is there with the updated name
-                                        if let loadedContact = userViewModel.contacts.first(where: { $0.qrCodeId == testContactQRCode }) {
+                                        if let loadedContact = userProfileViewModel.contacts.first(where: { $0.qrCodeId == testContactQRCode }) {
                                             contactsStatus = "Contact test successful!\n\nAdded and updated contact:\nName: \(loadedContact.name)\nQR Code: \(loadedContact.qrCodeId ?? "None")\nIs Responder: \(loadedContact.isResponder)\nIs Dependent: \(loadedContact.isDependent)"
                                             contactsTestSuccess = true
                                         } else {
@@ -417,22 +417,22 @@ struct UserModelTestView: View {
             }
         }
     }
-    
+
     private func testCheckIn() {
         guard AuthenticationService.shared.isAuthenticated else {
             checkInStatus = "Error: User not authenticated. Please sign in first."
             return
         }
-        
+
         isTestingCheckIn = true
         checkInStatus = "Testing check-in..."
         checkInTestSuccess = false
-        
+
         // Record the current check-in time
-        let oldCheckInTime = userViewModel.lastCheckedIn
-        
+        let oldCheckInTime = userProfileViewModel.lastCheckedIn
+
         // Update check-in time
-        userViewModel.updateLastCheckedIn { success, error in
+        userProfileViewModel.updateLastCheckedIn { success, error in
             if let error = error {
                 DispatchQueue.main.async {
                     checkInStatus = "Error updating check-in time: \(error.localizedDescription)"
@@ -440,17 +440,17 @@ struct UserModelTestView: View {
                 }
                 return
             }
-            
+
             if success {
                 // Now load user data to verify
-                userViewModel.loadUserData { loadSuccess in
+                userProfileViewModel.loadUserData { loadSuccess in
                     DispatchQueue.main.async {
                         if loadSuccess {
-                            let newCheckInTime = userViewModel.lastCheckedIn
+                            let newCheckInTime = userProfileViewModel.lastCheckedIn
                             let formatter = DateFormatter()
                             formatter.dateStyle = .medium
                             formatter.timeStyle = .medium
-                            
+
                             checkInStatus = "Check-in test successful!\n\nOld check-in time: \(formatter.string(from: oldCheckInTime))\nNew check-in time: \(formatter.string(from: newCheckInTime))"
                             checkInTestSuccess = true
                         } else {
@@ -468,22 +468,22 @@ struct UserModelTestView: View {
             }
         }
     }
-    
+
     private func testQRCode() {
         guard AuthenticationService.shared.isAuthenticated else {
             qrCodeStatus = "Error: User not authenticated. Please sign in first."
             return
         }
-        
+
         isTestingQRCode = true
         qrCodeStatus = "Testing QR code generation..."
         qrCodeTestSuccess = false
-        
+
         // Record the current QR code
-        let oldQRCode = userViewModel.qrCodeId
-        
+        let oldQRCode = userProfileViewModel.qrCodeId
+
         // Generate new QR code
-        userViewModel.generateNewQRCode { success, error in
+        userProfileViewModel.generateNewQRCode { success, error in
             if let error = error {
                 DispatchQueue.main.async {
                     qrCodeStatus = "Error generating QR code: \(error.localizedDescription)"
@@ -491,14 +491,14 @@ struct UserModelTestView: View {
                 }
                 return
             }
-            
+
             if success {
                 // Now load user data to verify
-                userViewModel.loadUserData { loadSuccess in
+                userProfileViewModel.loadUserData { loadSuccess in
                     DispatchQueue.main.async {
                         if loadSuccess {
-                            let newQRCode = userViewModel.qrCodeId
-                            
+                            let newQRCode = userProfileViewModel.qrCodeId
+
                             qrCodeStatus = "QR code test successful!\n\nOld QR code: \(oldQRCode)\nNew QR code: \(newQRCode)"
                             qrCodeTestSuccess = true
                         } else {
@@ -516,24 +516,24 @@ struct UserModelTestView: View {
             }
         }
     }
-    
+
     private func testNotificationSettings() {
         guard AuthenticationService.shared.isAuthenticated else {
             notificationStatus = "Error: User not authenticated. Please sign in first."
             return
         }
-        
+
         isTestingNotification = true
         notificationStatus = "Testing notification settings..."
         notificationTestSuccess = false
-        
+
         // Record the current notification lead time
-        let oldLeadTime = userViewModel.notificationLeadTime
-        
+        let oldLeadTime = userProfileViewModel.notificationLeadTime
+
         // Toggle notification lead time between 30 and 120 minutes
         let newLeadTime = oldLeadTime == 30 ? 120 : 30
-        
-        userViewModel.setNotificationLeadTime(newLeadTime) { success, error in
+
+        userProfileViewModel.setNotificationLeadTime(newLeadTime) { success, error in
             if let error = error {
                 DispatchQueue.main.async {
                     notificationStatus = "Error updating notification settings: \(error.localizedDescription)"
@@ -541,14 +541,14 @@ struct UserModelTestView: View {
                 }
                 return
             }
-            
+
             if success {
                 // Now load user data to verify
-                userViewModel.loadUserData { loadSuccess in
+                userProfileViewModel.loadUserData { loadSuccess in
                     DispatchQueue.main.async {
                         if loadSuccess {
-                            let updatedLeadTime = userViewModel.notificationLeadTime
-                            
+                            let updatedLeadTime = userProfileViewModel.notificationLeadTime
+
                             notificationStatus = "Notification settings test successful!\n\nOld lead time: \(oldLeadTime) minutes\nNew lead time: \(updatedLeadTime) minutes"
                             notificationTestSuccess = true
                         } else {
@@ -570,5 +570,5 @@ struct UserModelTestView: View {
 
 #Preview {
     UserModelTestView()
-        .environmentObject(UserViewModel())
+        .environmentObject(UserProfileViewModel())
 }

@@ -21,7 +21,7 @@ struct FirebaseTestView: View {
     @State private var isSigningOut: Bool = false
     @State private var showMainApp: Bool = false
     @State private var userData: [String: Any] = [:]
-    @EnvironmentObject private var userViewModel: UserViewModel
+    @EnvironmentObject private var userProfileViewModel: UserProfileViewModel
 
     var body: some View {
         NavigationStack {
@@ -335,7 +335,7 @@ struct FirebaseTestView: View {
             }
             .navigationDestination(isPresented: $showMainApp) {
                 ContentView()
-                    .environmentObject(userViewModel)
+                    .environmentObject(userProfileViewModel)
                     .navigationBarBackButtonHidden(true)
             }
         }
@@ -654,5 +654,5 @@ struct FirebaseTestView: View {
 
 #Preview {
     FirebaseTestView()
-        .environmentObject(UserViewModel())
+        .environmentObject(UserProfileViewModel())
 }

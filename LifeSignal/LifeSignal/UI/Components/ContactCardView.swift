@@ -97,7 +97,7 @@ struct ContactCardView: View {
         )
 
         // Contact with manual alert - should have red background
-        let alertContact = ContactReference.createDefault(
+        var alertContact = ContactReference.createDefault(
             name: "Robert Taylor",
             phone: "555-222-0001",
             note: "Solo backpacker",
@@ -114,7 +114,7 @@ struct ContactCardView: View {
         )
 
         // Responder with incoming ping - should have blue background in responder context
-        let pingContact = ContactReference.createDefault(
+        var pingContact = ContactReference.createDefault(
             name: "Daniel Kim",
             phone: "555-444-3333",
             note: "Mountain guide",
@@ -142,7 +142,7 @@ struct ContactCardView: View {
         )
 
         // Dual role contact with incoming ping - should NOT have blue background in dependent context
-        let dualRoleContact = ContactReference.createDefault(
+        var dualRoleContact = ContactReference.createDefault(
             name: "Mia Anderson",
             phone: "555-777-8888",
             note: "Dual role contact",

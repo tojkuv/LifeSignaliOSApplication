@@ -4,7 +4,7 @@ import FirebaseFirestore
 import UIKit
 
 struct AuthenticationView: View {
-    @EnvironmentObject private var userViewModel: UserViewModel
+    @EnvironmentObject private var userProfileViewModel: UserProfileViewModel
     @Binding var isAuthenticated: Bool
     @Binding var needsOnboarding: Bool
 
@@ -262,8 +262,8 @@ struct AuthenticationView: View {
 
     /// Continue the authentication flow by checking user data
     private func continueWithUserData() {
-        // Load user data using UserViewModel
-        userViewModel.loadUserData { success in
+        // Load user data using UserProfileViewModel
+        userProfileViewModel.loadUserData { success in
             DispatchQueue.main.async {
                 self.isLoading = false
 
@@ -275,8 +275,8 @@ struct AuthenticationView: View {
                     return
                 }
 
-                // Check if profile is complete based on UserViewModel data
-                let profileComplete = !self.userViewModel.name.isEmpty && !self.userViewModel.profileDescription.isEmpty
+                // Check if profile is complete based on UserProfileViewModel data
+                let profileComplete = !self.userProfileViewModel.name.isEmpty && !self.userProfileViewModel.profileDescription.isEmpty
 
                 if profileComplete {
                     // User is authenticated and has a complete profile
@@ -299,5 +299,5 @@ struct AuthenticationView: View {
         isAuthenticated: .constant(false),
         needsOnboarding: .constant(false)
     )
-    .environmentObject(UserViewModel())
+    .environmentObject(UserProfileViewModel())
 }

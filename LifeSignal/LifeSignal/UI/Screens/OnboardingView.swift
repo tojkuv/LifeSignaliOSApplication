@@ -3,7 +3,7 @@ import FirebaseAuth
 import FirebaseFirestore
 
 struct OnboardingView: View {
-    @EnvironmentObject private var userViewModel: UserViewModel
+    @EnvironmentObject private var userProfileViewModel: UserProfileViewModel
     @Binding var needsOnboarding: Bool
 
     @State private var name = "First Last"
@@ -160,21 +160,21 @@ struct OnboardingView: View {
     private func completeOnboarding() {
         isLoading = true
 
-        // Update UserViewModel with the user input
-        userViewModel.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        userViewModel.profileDescription = emergencyNote.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Update UserProfileViewModel with the user input
+        userProfileViewModel.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        userProfileViewModel.profileDescription = emergencyNote.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Create a new QR code ID
-        userViewModel.qrCodeId = UUID().uuidString
+        userProfileViewModel.qrCodeId = UUID().uuidString
 
         // Ensure profile is marked as complete
         let additionalData: [String: Any] = [
             FirestoreSchema.User.profileComplete: true
         ]
 
-        // Create the user document using UserViewModel
+        // Create the user document using UserProfileViewModel
         // This will also create the QR lookup document and empty contacts collection
-        userViewModel.saveUserData(additionalData: additionalData) { success, error in
+        userProfileViewModel.saveUserData(additionalData: additionalData) { success, error in
             if let error = error {
                 DispatchQueue.main.async {
                     self.isLoading = false
@@ -205,5 +205,5 @@ struct OnboardingView: View {
 
 #Preview {
     OnboardingView(needsOnboarding: .constant(true))
-        .environmentObject(UserViewModel())
+        .environmentObject(UserProfileViewModel())
 }
