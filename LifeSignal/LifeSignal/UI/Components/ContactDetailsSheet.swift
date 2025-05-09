@@ -5,7 +5,7 @@ import UIKit
 struct ContactDetailsSheet: View {
     let contactID: UUID // Store the contact ID instead of a binding
     @Environment(\.presentationMode) private var presentationMode
-    @EnvironmentObject private var userViewModel: UserViewModel
+    @EnvironmentObject var userViewModel: UserViewModel
     @State private var showDeleteAlert = false
     @State private var isResponder: Bool
     @State private var isDependent: Bool
@@ -19,7 +19,28 @@ struct ContactDetailsSheet: View {
 
     // Computed property to find the contact in the view model's contacts list
     private var contact: Contact? {
-        return userViewModel.contacts.first(where: { $0.id == contactID })
+        // Get the contact from the UserViewModel using the more efficient lookup method
+        let foundContact = userViewModel.getContact(by: contactID)
+
+        // Synchronize local state with the contact in the view model
+        syncLocalStateWithContact(foundContact)
+
+        return foundContact
+    }
+
+    // Helper method to synchronize local state with the contact
+    private func syncLocalStateWithContact(_ foundContact: Contact?) {
+        guard let foundContact = foundContact else { return }
+
+        // Only update if there's a mismatch to avoid unnecessary state changes
+        if foundContact.isResponder != isResponder || foundContact.isDependent != isDependent {
+            // Use DispatchQueue to avoid modifying state during view update
+            DispatchQueue.main.async {
+                self.isResponder = foundContact.isResponder
+                self.isDependent = foundContact.isDependent
+                self.lastValidRoles = (foundContact.isResponder, foundContact.isDependent)
+            }
+        }
     }
 
     init(contact: Contact) {
@@ -106,7 +127,7 @@ struct ContactDetailsSheet: View {
         Group {
             if let contact = contact {
                 HStack(spacing: 12) {
-                    ForEach(ActionButtonType.allCases, id: \._id) { type in
+                    ForEach(ActionButtonType.allCases) { type in
                         Button(action: {
                             // Show alert for disabled ping button, otherwise handle action normally
                             if type == .ping && !contact.isDependent {
@@ -344,6 +365,41 @@ struct ContactDetailsSheet: View {
                 if shouldDismiss {
                     // Show a message when the contact is removed from its original list
                     contactDismissedView
+                } else if userViewModel.isLoadingContacts {
+                    // Show loading indicator
+                    VStack {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle())
+                        Text("Loading contact details...")
+                            .foregroundColor(.secondary)
+                            .padding(.top, 8)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let error = userViewModel.contactError {
+                    // Show error view
+                    VStack(spacing: 16) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 50))
+                            .foregroundColor(.red)
+
+                        Text("Error Loading Contact")
+                            .font(.headline)
+
+                        Text(error.localizedDescription)
+                            .multilineTextAlignment(.center)
+                            .foregroundColor(.secondary)
+
+                        Button("Retry") {
+                            userViewModel.forceReloadContacts()
+                            refreshID = UUID()
+                        }
+                        .padding()
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ScrollView {
                         VStack(spacing: 16) {
@@ -376,6 +432,13 @@ struct ContactDetailsSheet: View {
             .background(Color(.systemBackground).ignoresSafeArea())
             .navigationTitle("Contact Info")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                // Ensure our local state is in sync with the contact in the view model
+                syncLocalStateWithContact(contact)
+
+                // Force refresh to ensure we have the latest data
+                refreshID = UUID()
+            }
         }
         .alert(item: $activeAlert) { alertType in
             switch alertType {
@@ -442,57 +505,38 @@ struct ContactDetailsSheet: View {
         }
     }
 
-    private enum ActionButtonType: CaseIterable {
+    private enum ActionButtonType: CaseIterable, Identifiable {
         case call, message, ping
 
-        // Used for ForEach identification
-        var _id: String {
-            switch self {
-            case .call: return "call"
-            case .message: return "message"
-            case .ping: return "ping"
-            }
-        }
+        // Conform to Identifiable
+        var id: Self { self }
 
-        // Helper to determine if the button should be disabled
-        func isDisabled(for contact: Contact) -> Bool {
-            if self == .ping && !contact.isDependent {
-                return true
-            }
-            return false
-        }
-
+        // Icon for the button
         func icon(for contact: Contact) -> String {
             switch self {
-            case .call: return "phone"
-            case .message: return "message"
+            case .call:
+                return "phone"
+            case .message:
+                return "message"
             case .ping:
-                // Only show filled bell for dependents with outgoing pings
-                if contact.isDependent {
-                    // Force evaluation with refreshID to ensure updates
-                    let _ = UUID() // This is just to silence the compiler warning
-                    return contact.hasOutgoingPing ? "bell.fill" : "bell"
-                } else {
-                    // For non-dependents, show a disabled bell icon
-                    return "bell.slash"
-                }
+                return contact.isDependent
+                    ? (contact.hasOutgoingPing ? "bell.fill" : "bell")
+                    : "bell.slash"
             }
         }
 
+        // Label for the button
         func label(for contact: Contact) -> String {
             switch self {
-            case .call: return "Call"
-            case .message: return "Message"
+            case .call:
+                return "Call"
+            case .message:
+                return "Message"
             case .ping:
-                // Only show "Pinged" for dependents with outgoing pings
-                if contact.isDependent {
-                    // Force evaluation with refreshID to ensure updates
-                    let _ = UUID() // This is just to silence the compiler warning
-                    return contact.hasOutgoingPing ? "Pinged" : "Ping"
-                } else {
-                    // For non-dependents, show a disabled label
+                if !contact.isDependent {
                     return "Can't Ping"
                 }
+                return contact.hasOutgoingPing ? "Pinged" : "Ping"
             }
         }
     }
@@ -522,112 +566,78 @@ struct ContactDetailsSheet: View {
     private func pingContact() {
         guard let currentContact = contact, currentContact.isDependent else { return }
 
-        // For dependents, we're handling outgoing pings (user to dependent)
-        if currentContact.hasOutgoingPing {
-            // Clear outgoing ping
-            if currentContact.isResponder {
-                // If the contact is both a responder and a dependent, use the appropriate method
-                userViewModel.clearOutgoingPing(for: currentContact)
-            } else {
-                userViewModel.clearPing(for: currentContact)
-            }
-        } else {
-            // Send new ping
-            if currentContact.isResponder {
-                // If the contact is both a responder and a dependent, use the appropriate method
-                userViewModel.sendPing(to: currentContact)
-            } else {
-                userViewModel.pingDependent(currentContact)
-            }
-        }
+        // Use the UserViewModel's handlePingOperation method which handles all ping operations
+        let operation = currentContact.hasOutgoingPing ? UserViewModel.PingOperation.clear : UserViewModel.PingOperation.send
 
-        // Force refresh the view after a short delay to allow the view model to update
-        // Use a slightly longer delay to ensure the view model has fully updated
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            // Force refresh the view - our computed property will find the contact in the appropriate list
-            self.refreshID = UUID()
+        userViewModel.handlePingOperation(operation: operation, for: currentContact) { success, error in
+            if let error = error {
+                print("Error handling ping operation: \(error.localizedDescription)")
+                return
+            }
+
+            if success {
+                // Force refresh the view
+                DispatchQueue.main.async {
+                    self.refreshID = UUID()
+                }
+            }
         }
     }
 
     private enum RoleChanged { case dependent, responder }
 
     private func validateRoles(changed: RoleChanged) {
+        // Validate that at least one role is selected
         if !isResponder && !isDependent {
-            // Can't have no roles, show alert and revert
             pendingToggleRevert = changed
             activeAlert = .role
-        } else {
-            activeAlert = nil
+            return
+        }
 
-            guard let currentContact = contact else {
-                print("Cannot validate roles: contact not found")
+        activeAlert = nil
+
+        guard let currentContact = contact else {
+            print("Cannot validate roles: contact not found")
+            return
+        }
+
+        // Store the previous roles before updating
+        let wasResponder = currentContact.isResponder
+        let wasDependent = currentContact.isDependent
+
+        // If the roles haven't actually changed, do nothing
+        if wasResponder == isResponder && wasDependent == isDependent {
+            return
+        }
+
+        // Update the local state
+        lastValidRoles = (isResponder, isDependent)
+
+        // Create a mutable copy for the view model update
+        var updatedContact = currentContact
+        updatedContact.isResponder = isResponder
+        updatedContact.isDependent = isDependent
+
+        // Update the contact's position in the lists based on role changes
+        userViewModel.updateContactRole(contact: updatedContact, wasResponder: wasResponder, wasDependent: wasDependent) { success, error in
+            if let error = error {
+                print("Error updating contact role: \(error.localizedDescription)")
+                // Revert local state on error
+                DispatchQueue.main.async {
+                    self.isResponder = wasResponder
+                    self.isDependent = wasDependent
+                    self.lastValidRoles = (wasResponder, wasDependent)
+                    self.refreshID = UUID() // Force refresh
+                }
                 return
             }
 
-            // Store the previous roles before updating
-            let wasResponder = currentContact.isResponder
-            let wasDependent = currentContact.isDependent
-
-            print("\n==== ROLE CHANGE ====\nRole change for contact: \(currentContact.name)")
-            print("  Before: responder=\(wasResponder), dependent=\(wasDependent)")
-            print("  After: responder=\(isResponder), dependent=\(isDependent)")
-            print("  Before counts - Responders: \(userViewModel.responders.count), Dependents: \(userViewModel.dependents.count)")
-
-            // Update the local state
-            lastValidRoles = (isResponder, isDependent)
-
-            // Check if we're removing the contact from its original list
-            let removingFromOriginalList =
-                (originalList == "responders" && wasResponder && !isResponder) ||
-                (originalList == "dependents" && wasDependent && !isDependent)
-
-            // If we're removing from original list, log it
-            if removingFromOriginalList {
-                print("  Contact will be removed from its original list (\(originalList))")
+            if success {
+                // Force refresh the view
+                DispatchQueue.main.async {
+                    self.refreshID = UUID()
+                }
             }
-
-            // Create a mutable copy for the view model update
-            var updatedContact = currentContact
-
-            // Update the roles in our updatedContact
-            updatedContact.isResponder = isResponder
-            updatedContact.isDependent = isDependent
-
-            // If dependent role was turned off, clear any active pings
-            if wasDependent && !isDependent && updatedContact.hasOutgoingPing {
-                // Clear outgoing ping
-                updatedContact.hasOutgoingPing = false
-                updatedContact.outgoingPingTimestamp = nil
-                print("  Cleared outgoing ping because dependent role was turned off")
-            }
-
-            // Store contact name for logging before potential removal
-            let contactName = updatedContact.name
-            let newRoles = "responder=\(isResponder), dependent=\(isDependent)"
-
-            // Update the contact's position in the lists based on role changes
-            userViewModel.updateContactRole(contact: updatedContact, wasResponder: wasResponder, wasDependent: wasDependent)
-
-            // Force refresh the view after a short delay to allow the view model to update
-            // Use a slightly longer delay to ensure the view model has fully updated
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                // Force refresh the view - our computed property will find the contact in the appropriate list
-                self.refreshID = UUID()
-            }
-
-            // Post notification to refresh the lists views
-            NotificationCenter.default.post(name: NSNotification.Name("RefreshDependentsView"), object: nil)
-            NotificationCenter.default.post(name: NSNotification.Name("RefreshRespondersView"), object: nil)
-
-            print("Contact sheet refreshed after role change")
-            print("  Contact: \(contactName)")
-            print("  Roles: \(newRoles)")
-            print("  After counts - Responders: \(userViewModel.responders.count), Dependents: \(userViewModel.dependents.count)\n==== END ROLE CHANGE ====\n")
-
-            // We'll keep the sheet open even if the contact is removed from its original list
-            // This allows users to continue viewing and editing the contact
-            // The lists will be updated in the background
-            print("  Contact sheet remains open after role change")
         }
     }
 
@@ -637,17 +647,19 @@ struct ContactDetailsSheet: View {
             return
         }
 
-        // Remove the contact from the appropriate lists
-        userViewModel.removeContact(currentContact)
+        // Remove the contact using the UserViewModel
+        userViewModel.removeContact(currentContact) { success, error in
+            if let error = error {
+                print("Error removing contact: \(error.localizedDescription)")
+                return
+            }
 
-        // Post notification to refresh the lists views
-        NotificationCenter.default.post(name: NSNotification.Name("RefreshDependentsView"), object: nil)
-        NotificationCenter.default.post(name: NSNotification.Name("RefreshRespondersView"), object: nil)
-
-        // Add a small delay before dismissing to allow the user to see the result
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            // Dismiss the sheet
-            presentationMode.wrappedValue.dismiss()
+            if success {
+                // Dismiss the sheet after a short delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    self.presentationMode.wrappedValue.dismiss()
+                }
+            }
         }
     }
 

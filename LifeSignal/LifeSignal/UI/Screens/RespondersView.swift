@@ -4,7 +4,7 @@ import AVFoundation
 import UIKit
 
 struct RespondersView: View {
-    @EnvironmentObject private var userViewModel: UserViewModel
+    @EnvironmentObject var userViewModel: UserViewModel
     @State private var showQRScanner = false
     @State private var showCheckInConfirmation = false
     @State private var showCameraDeniedAlert = false
@@ -42,24 +42,60 @@ struct RespondersView: View {
 
     var body: some View {
         VStack {
-            ScrollView {
-                LazyVStack(spacing: 12) {
-                    if userViewModel.responders.isEmpty {
-                        Text("No responders yet")
-                            .foregroundColor(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.top, 40)
-                    } else {
-                        // Use the sortedResponders directly
-                        ForEach(sortedResponders) { responder in
-                            ResponderCard(contact: responder, refreshID: refreshID)
-                        }
+            if userViewModel.isLoadingContacts {
+                // Show loading indicator
+                VStack {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle())
+                    Text("Loading responders...")
+                        .foregroundColor(.secondary)
+                        .padding(.top, 8)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error = userViewModel.contactError {
+                // Show error view
+                VStack(spacing: 16) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 50))
+                        .foregroundColor(.red)
+
+                    Text("Error Loading Responders")
+                        .font(.headline)
+
+                    Text(error.localizedDescription)
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(.secondary)
+
+                    Button("Retry") {
+                        userViewModel.forceReloadContacts()
                     }
+                    .padding()
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
                 }
                 .padding()
-                .padding(.bottom, 30)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        if userViewModel.responders.isEmpty {
+                            Text("No responders yet")
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.top, 40)
+                        } else {
+                            // Use the sortedResponders directly
+                            ForEach(sortedResponders) { responder in
+                                ResponderCard(contact: responder, refreshID: refreshID)
+                            }
+                        }
+                    }
+                    .padding()
+                    .padding(.bottom, 30)
+                }
+                .background(Color(.systemBackground))
             }
-            .background(Color(.systemBackground))
         }
         .background(Color(.systemBackground))
         .onAppear {
@@ -70,13 +106,27 @@ struct RespondersView: View {
 
             // Force refresh the view when it appears
             refreshID = UUID()
+
+            // Only reload contacts if they haven't been loaded yet or if there was an error
+            if userViewModel.contacts.isEmpty || userViewModel.contactError != nil {
+                userViewModel.forceReloadContacts()
+            }
         }
         .toolbar {
             // Respond to All button (only shown when there are pending pings)
             if userViewModel.pendingPingsCount > 0 {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(action: {
-                        userViewModel.respondToAllPings()
+                        userViewModel.respondToAllPings() { success, error in
+                            if let error = error {
+                                print("Error responding to all pings: \(error.localizedDescription)")
+                                return
+                            }
+
+                            if success {
+                                print("Successfully responded to all pings")
+                            }
+                        }
                     }) {
                         Text("Respond to All")
                             .foregroundColor(.blue)
@@ -117,17 +167,12 @@ struct RespondersView: View {
                         return
                     }
 
-                    // Extract user data
-                    let name = userData[FirestoreSchema.User.name] as? String ?? "Unknown Name"
-                    let phone = userData[FirestoreSchema.User.phoneNumber] as? String ?? ""
-                    let note = userData[FirestoreSchema.User.note] as? String ?? ""
-
-                    // Create a new contact with the user data
+                    // Create a new contact with the user data from the UserViewModel
                     DispatchQueue.main.async {
-                        self.newContact = Contact(
-                            name: name,
-                            phone: phone,
-                            note: note,
+                        self.newContact = Contact.createDefault(
+                            name: userData["name"] as? String ?? "Unknown Name",
+                            phone: userData["phoneNumber"] as? String ?? "",
+                            note: userData["note"] as? String ?? "",
                             qrCodeId: code,
                             isResponder: true,
                             isDependent: false
@@ -232,7 +277,7 @@ struct RespondersView: View {
 struct ResponderCard: View {
     let contact: Contact
     let refreshID: UUID // Used to force refresh when ping state changes
-    @EnvironmentObject private var userViewModel: UserViewModel
+    @EnvironmentObject var userViewModel: UserViewModel
     @State private var selectedContactID: ContactID?
 
     var statusText: String {
@@ -251,7 +296,16 @@ struct ResponderCard: View {
             trailingContent: {
                 if contact.hasIncomingPing {
                     Button(action: {
-                        userViewModel.respondToPing(from: contact)
+                        userViewModel.respondToPing(from: contact) { success, error in
+                            if let error = error {
+                                print("Error responding to ping: \(error.localizedDescription)")
+                                return
+                            }
+
+                            if success {
+                                print("Successfully responded to ping from: \(contact.name)")
+                            }
+                        }
                     }) {
                         Circle()
                             .fill(Color(UIColor.systemBackground))
@@ -267,30 +321,15 @@ struct ResponderCard: View {
                 }
             },
             onTap: {
-                triggerHaptic()
                 selectedContactID = ContactID(id: contact.id)
             }
         )
         .sheet(item: $selectedContactID) { id in
-            if let contact = userViewModel.contacts.first(where: { $0.id == id.id }) {
+            if let contact = userViewModel.getContact(by: id.id) {
                 ContactDetailsSheet(contact: contact)
             }
         }
     }
 }
 
-// Add the Array extension to fix the 'partitioned' accessibility issue
-extension Array {
-    func partitioned(by belongsInFirstPartition: (Element) throws -> Bool) rethrows -> ([Element], [Element]) {
-        var first: [Element] = []
-        var second: [Element] = []
-        for element in self {
-            if try belongsInFirstPartition(element) {
-                first.append(element)
-            } else {
-                second.append(element)
-            }
-        }
-        return (first, second)
-    }
-}
+// The Array extension is now defined in a shared utility file

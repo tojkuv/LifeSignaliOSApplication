@@ -54,13 +54,16 @@ class UserViewModel: ObservableObject {
     @Published var notificationLeadTime: Int = 30
 
     /// Combined list of all contacts
-    @Published var contacts: [Contact] = [] {
-        didSet {
-            // Update counts when contacts change
-            updateNonResponsiveDependentsCount()
-            updatePendingPingsCount()
-        }
-    }
+    @Published var contacts: [Contact] = []
+
+    /// Dictionary for faster contact lookup by ID
+    private var contactsById: [UUID: Contact] = [:]
+
+    /// Loading state for contacts
+    @Published var isLoadingContacts: Bool = false
+
+    /// Error state for contact operations
+    @Published var contactError: Error? = nil
 
     /// Computed property to get responders
     var responders: [Contact] {
@@ -70,6 +73,13 @@ class UserViewModel: ObservableObject {
     /// Computed property to get dependents
     var dependents: [Contact] {
         contacts.filter { $0.isDependent }
+    }
+
+    /// Get a contact by ID
+    /// - Parameter id: The contact ID
+    /// - Returns: The contact if found, nil otherwise
+    func getContact(by id: UUID) -> Contact? {
+        return contactsById[id]
     }
 
     /// Count of non-responsive dependents
@@ -82,13 +92,7 @@ class UserViewModel: ObservableObject {
     @Published var profileDescription: String = "I have a severe peanut allergy - EpiPen is always in my backpack's front pocket."
 
     /// Alert toggle state for HomeView
-    @Published var sendAlertActive: Bool = false {
-        didSet {
-            if sendAlertActive != oldValue {
-                updateAlertStatus(isActive: sendAlertActive)
-            }
-        }
-    }
+    @Published var sendAlertActive: Bool = false
 
     /// Flag indicating if user data has been loaded from Firestore
     @Published var isDataLoaded: Bool = false
@@ -162,13 +166,14 @@ class UserViewModel: ObservableObject {
         }
     }
 
-    /// Updates a contact in the local contacts array
+    /// Updates a contact in the local contacts array and dictionary
     /// - Parameters:
     ///   - contact: The contact to update
     ///   - updateAction: Optional closure to modify the contact before updating
+    ///   - notifyChanges: Whether to post notifications about the change
     /// - Returns: True if the contact was found and updated, false otherwise
     @discardableResult
-    private func updateLocalContact(_ contact: Contact, updateAction: ((inout Contact) -> Void)? = nil) -> Bool {
+    private func updateLocalContact(_ contact: Contact, updateAction: ((inout Contact) -> Void)? = nil, notifyChanges: Bool = true) -> Bool {
         if let index = contacts.firstIndex(where: { $0.id == contact.id }) {
             var updatedContact = contacts[index]
 
@@ -178,8 +183,13 @@ class UserViewModel: ObservableObject {
             // Update the contact in the array
             contacts[index] = updatedContact
 
-            // Post notifications to refresh the UI
-            postUIRefreshNotifications()
+            // Update the contact in the dictionary
+            contactsById[updatedContact.id] = updatedContact
+
+            // Post notifications to refresh the UI if requested
+            if notifyChanges {
+                postUIRefreshNotifications()
+            }
 
             return true
         }
@@ -189,6 +199,118 @@ class UserViewModel: ObservableObject {
 
     // MARK: - Initialization
 
+    /// Process contacts from an array in the user document
+    /// - Parameters:
+    ///   - contactsArray: Array of contact data from Firestore
+    ///   - completion: Callback with success flag
+    func processContactsFromArray(_ contactsArray: [[String: Any]], completion: @escaping (Bool) -> Void) {
+        print("DEBUG: Processing \(contactsArray.count) contacts from array")
+
+        let db = Firestore.firestore()
+        var loadedContacts: [Contact] = []
+        let group = DispatchGroup()
+
+        for contactData in contactsArray {
+            // Extract data from the contact entry
+            guard let referencePath = contactData["referencePath"] as? String,
+                  let isResponder = contactData["isResponder"] as? Bool,
+                  let isDependent = contactData["isDependent"] as? Bool else {
+                print("DEBUG: Missing required fields in contact data")
+                continue
+            }
+
+            print("DEBUG: Processing contact with referencePath: \(referencePath)")
+
+            // Extract the user ID from the path (format: "users/userId")
+            let components = referencePath.components(separatedBy: "/")
+            guard components.count == 2 && components[0] == "users" else {
+                print("DEBUG: Invalid referencePath format: \(referencePath)")
+                continue
+            }
+
+            let contactUserId = components[1]
+            let lastUpdated = (contactData["lastUpdated"] as? Timestamp) ?? Timestamp(date: Date())
+
+            // Fetch the user document to get the name, phone, etc.
+            group.enter()
+            db.collection(FirestoreSchema.Collections.users).document(contactUserId).getDocument { document, error in
+                defer { group.leave() }
+
+                if let error = error {
+                    print("DEBUG: Error fetching user document: \(error.localizedDescription)")
+                    return
+                }
+
+                guard let document = document, document.exists, let userData = document.data() else {
+                    print("DEBUG: User document not found for ID: \(contactUserId)")
+                    return
+                }
+
+                // Extract user data
+                let name = userData[FirestoreSchema.User.name] as? String ?? "Unknown User"
+                let phone = userData[FirestoreSchema.User.phoneNumber] as? String ?? ""
+                let note = userData[FirestoreSchema.User.note] as? String ?? ""
+                let qrCodeId = userData[FirestoreSchema.User.qrCodeId] as? String
+
+                print("DEBUG: Fetched user data - name: \(name), isResponder: \(isResponder), isDependent: \(isDependent)")
+
+                // Create a Contact object
+                let contact = Contact(
+                    id: UUID(), // Generate a new UUID for the contact
+                    name: name,
+                    phone: phone,
+                    note: note,
+                    qrCodeId: qrCodeId,
+                    isResponder: isResponder,
+                    isDependent: isDependent,
+                    addedAt: lastUpdated.dateValue()
+                )
+
+                // Add to our local array
+                loadedContacts.append(contact)
+            }
+        }
+
+        // Wait for all fetches to complete
+        group.notify(queue: .main) { [weak self] in
+            guard let self = self else {
+                completion(false)
+                return
+            }
+
+            print("DEBUG: Finished processing contacts array, loaded \(loadedContacts.count) contacts")
+
+            // Update the contacts array
+            self.contacts = loadedContacts
+
+            // Update the contacts dictionary
+            self.contactsById = Dictionary(uniqueKeysWithValues: loadedContacts.map { ($0.id, $0) })
+
+            // Update counts
+            let nonResponsiveCount = self.contacts.filter { contact in
+                guard contact.isDependent else { return false }
+                if contact.manualAlertActive { return true }
+                return contact.isNonResponsive
+            }.count
+
+            let pendingCount = self.contacts.filter { $0.isResponder && $0.hasIncomingPing }.count
+
+            self.nonResponsiveDependentsCount = nonResponsiveCount
+            self.pendingPingsCount = pendingCount
+
+            // Clear any previous errors
+            self.contactError = nil
+            self.isLoadingContacts = false
+
+            // Post notifications to refresh the UI
+            self.postUIRefreshNotifications()
+
+            print("DEBUG: After processing array - Responders count: \(self.responders.count), Dependents count: \(self.dependents.count)")
+
+            completion(true)
+        }
+    }
+
     init() {
         // Generate a random QR code ID for the user
         qrCodeId = UUID().uuidString
@@ -196,18 +318,32 @@ class UserViewModel: ObservableObject {
         // Initialize with empty contacts array
         contacts = []
 
-        // Safely update counts after initialization
+        // Initialize counts
         DispatchQueue.main.async {
-            self.updateNonResponsiveDependentsCount()
-            self.updatePendingPingsCount()
+            self.nonResponsiveDependentsCount = 0
+            self.pendingPingsCount = 0
         }
+
+        print("DEBUG: UserViewModel init - isAuthenticated: \(AuthenticationService.shared.isAuthenticated)")
 
         // Try to load user data from Firestore if authenticated
         if AuthenticationService.shared.isAuthenticated {
+            print("DEBUG: UserViewModel init - Loading user data")
             loadUserData { [weak self] success in
-                if success {
-                    // If user data loaded successfully, load contacts
-                    self?.loadContactsFromFirestore()
+                guard let self = self else { return }
+
+                print("DEBUG: UserViewModel init - User data loaded with success: \(success)")
+
+                // Always try to load contacts, even if user data loading failed
+                // This ensures we get contacts in all cases
+                self.loadContactsFromFirestore { success in
+                    print("DEBUG: UserViewModel init - Contacts loaded with success: \(success)")
+                    print("DEBUG: UserViewModel init - Contacts count: \(self.contacts.count)")
+                    print("DEBUG: UserViewModel init - Responders count: \(self.responders.count)")
+                    print("DEBUG: UserViewModel init - Dependents count: \(self.dependents.count)")
+
+                    // Force refresh the UI
+                    self.postUIRefreshNotifications()
                 }
             }
         }
@@ -895,7 +1031,7 @@ class UserViewModel: ObservableObject {
                 return
             }
 
-            guard let userData = userData else {
+            guard let userData = userData, !userData.isEmpty else {
                 print("No user data found for QR code ID: \(qrCodeId)")
                 completion?(false, Self.createError(code: .notFound, message: "No user found with this QR code"))
                 return
@@ -974,10 +1110,19 @@ class UserViewModel: ObservableObject {
     ///   - contact: The contact to remove
     ///   - completion: Optional callback with success flag and error
     func removeContact(_ contact: Contact, completion: ((Bool, Error?) -> Void)? = nil) {
+        // Set error state to nil at the start of the operation
+        DispatchQueue.main.async {
+            self.contactError = nil
+        }
+
         print("Before removal - Responders count: \(responders.count), Dependents count: \(dependents.count)")
 
         // Remove the contact from the combined list
         contacts.removeAll { $0.id == contact.id }
+
+        // Remove from the dictionary
+        contactsById.removeValue(forKey: contact.id)
+
         print("Removed contact: \(contact.name)")
 
         print("After removal - Responders count: \(responders.count), Dependents count: \(dependents.count)")
@@ -1034,33 +1179,42 @@ class UserViewModel: ObservableObject {
     ///   - wasDependent: Whether the contact was previously a dependent
     ///   - completion: Optional callback with success flag and error
     func updateContactRole(contact: Contact, wasResponder: Bool, wasDependent: Bool, completion: ((Bool, Error?) -> Void)? = nil) {
+        // Set error state to nil at the start of the operation
+        DispatchQueue.main.async {
+            self.contactError = nil
+        }
+
         print("\n==== UPDATE CONTACT ROLE ====\nBefore update - Responders count: \(responders.count), Dependents count: \(dependents.count)")
         print("Updating contact role: \(contact.name) (ID: \(contact.id))")
         print("  Was responder: \(wasResponder), is now: \(contact.isResponder)")
         print("  Was dependent: \(wasDependent), is now: \(contact.isDependent)")
 
-        // Simply update the contact in the combined list
-        if let index = contacts.firstIndex(where: { $0.id == contact.id }) {
-            contacts[index] = contact
-            print("  Updated contact in the contacts list")
-        } else {
+        // Use updateLocalContact to update both the array and dictionary
+        let updated = updateLocalContact(contact) { _ in
+            // No additional changes needed, just use the contact as is
+        }
+
+        if !updated {
+            print("Contact not found in local contacts array, adding it")
             // If not found (shouldn't happen), add it
             contacts.append(contact)
-            print("  Added contact to the contacts list (not found but should be there)")
+            contactsById[contact.id] = contact
         }
 
         // Print the current state of the lists
         print("After update - Responders count: \(responders.count), Dependents count: \(dependents.count)")
         print("==== END UPDATE CONTACT ROLE ====\n")
 
-        // Post notification to refresh the lists views
-        NotificationCenter.default.post(name: NSNotification.Name("RefreshDependentsView"), object: nil)
-        NotificationCenter.default.post(name: NSNotification.Name("RefreshRespondersView"), object: nil)
-
         // Update the contact relationship using the cloud function
         updateContactRelationship(contact, updateRoles: true) { success, error in
             if let error = error {
                 print("Error updating contact relationship: \(error.localizedDescription)")
+
+                // Set the error state
+                DispatchQueue.main.async {
+                    self.contactError = error
+                }
+
                 completion?(false, error)
                 return
             }
@@ -1323,101 +1477,286 @@ class UserViewModel: ObservableObject {
     /// Load contacts from Firestore
     /// - Parameter completion: Optional callback with success flag
     func loadContactsFromFirestore(completion: ((Bool) -> Void)? = nil) {
+        print("DEBUG: Starting to load contacts from Firestore")
+
+        // Set loading state
+        DispatchQueue.main.async {
+            self.isLoadingContacts = true
+            self.contactError = nil
+        }
+
         guard let userId = AuthenticationService.shared.getCurrentUserID() else {
-            print("Cannot load contacts: No authenticated user")
+            let error = Self.createError(code: .unauthenticated, message: "No authenticated user")
+            DispatchQueue.main.async {
+                self.contactError = error
+                self.isLoadingContacts = false
+            }
+            print("DEBUG: Cannot load contacts: No authenticated user")
             completion?(false)
             return
         }
 
-        // Get reference to contacts subcollection
-        let db = Firestore.firestore()
-        let contactsRef = db.collection(FirestoreSchema.Collections.users)
-            .document(userId)
-            .collection(FirestoreSchema.Collections.contacts)
+        print("DEBUG: Loading contacts for user ID: \(userId)")
 
-        // Get all contacts
-        contactsRef.getDocuments { [weak self] snapshot, error in
-            guard let self = self else { return }
+        // Get reference to the user document
+        let db = Firestore.firestore()
+        let userRef = db.collection(FirestoreSchema.Collections.users).document(userId)
+
+        // First, check if contacts are stored directly in the user document as an array
+        userRef.getDocument { [weak self] document, error in
+            guard let self = self else {
+                print("DEBUG: Self is nil in loadContactsFromFirestore completion")
+                return
+            }
 
             if let error = error {
-                print("Error loading contacts from Firestore: \(error.localizedDescription)")
+                print("DEBUG: Error loading user document: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    self.contactError = error
+                    self.isLoadingContacts = false
+                }
                 completion?(false)
                 return
             }
 
-            guard let documents = snapshot?.documents else {
-                print("No contacts found in Firestore")
+            guard let document = document, document.exists, let userData = document.data() else {
+                let error = Self.createError(code: .notFound, message: "User document not found")
+                print("DEBUG: User document not found")
+                DispatchQueue.main.async {
+                    self.contactError = error
+                    self.isLoadingContacts = false
+                }
                 completion?(false)
                 return
             }
 
-            // Convert Firestore documents to Contact objects
-            var loadedContacts: [Contact] = []
+            // Check if the user document has a contacts array field
+            if let contactsArray = userData["contacts"] as? [[String: Any]], !contactsArray.isEmpty {
+                print("DEBUG: Found \(contactsArray.count) contacts in user document array")
 
-            for document in documents {
-                let data = document.data()
+                // Process contacts from the array
+                self.processContactsFromArray(contactsArray) { success in
+                    completion?(success)
+                }
+                return
+            }
 
-                // Extract required fields
-                guard let id = data[FirestoreSchema.Contact.id] as? String,
-                      let name = data[FirestoreSchema.Contact.name] as? String,
-                      let phone = data[FirestoreSchema.Contact.phoneNumber] as? String,
-                      let note = data[FirestoreSchema.Contact.note] as? String,
-                      let isResponder = data[FirestoreSchema.Contact.isResponder] as? Bool,
-                      let isDependent = data[FirestoreSchema.Contact.isDependent] as? Bool,
-                      let addedAtTimestamp = data[FirestoreSchema.Contact.addedAt] as? Timestamp else {
-                    print("Invalid contact data in Firestore document: \(document.documentID)")
-                    continue
+            print("DEBUG: No contacts array found in user document, checking subcollection")
+
+            // If no contacts array, try the subcollection approach
+            let contactsRef = userRef.collection(FirestoreSchema.Collections.contacts)
+
+            // Get all contacts from subcollection
+            contactsRef.getDocuments { [weak self] snapshot, error in
+                guard let self = self else {
+                    print("DEBUG: Self is nil in subcollection completion")
+                    return
                 }
 
-                // Extract optional fields
-                let qrCodeId = data[FirestoreSchema.Contact.qrCodeId] as? String
-                let lastCheckInTimestamp = data[FirestoreSchema.Contact.lastCheckedIn] as? Timestamp
-                let interval = data[FirestoreSchema.Contact.checkInInterval] as? TimeInterval
-                let manualAlertActive = data[FirestoreSchema.Contact.manualAlertActive] as? Bool ?? false
-                let manualAlertTimestamp = data[FirestoreSchema.Contact.manualAlertTimestamp] as? Timestamp
-                let hasIncomingPing = data[FirestoreSchema.Contact.hasIncomingPing] as? Bool ?? false
-                let hasOutgoingPing = data[FirestoreSchema.Contact.hasOutgoingPing] as? Bool ?? false
-                let incomingPingTimestamp = data[FirestoreSchema.Contact.incomingPingTimestamp] as? Timestamp
-                let outgoingPingTimestamp = data[FirestoreSchema.Contact.outgoingPingTimestamp] as? Timestamp
+                if let error = error {
+                    print("DEBUG: Error loading contacts from subcollection: \(error.localizedDescription)")
+                    completion?(false)
+                    return
+                }
 
-                // Create Contact object
-                let contact = Contact(
-                    id: UUID(uuidString: id) ?? UUID(),
-                    name: name,
-                    phone: phone,
-                    note: note,
-                    qrCodeId: qrCodeId,
-                    isResponder: isResponder,
-                    isDependent: isDependent,
-                    lastCheckIn: lastCheckInTimestamp?.dateValue(),
-                    interval: interval,
-                    addedAt: addedAtTimestamp.dateValue(),
-                    manualAlertActive: manualAlertActive,
-                    manualAlertTimestamp: manualAlertTimestamp?.dateValue(),
-                    hasIncomingPing: hasIncomingPing,
-                    hasOutgoingPing: hasOutgoingPing,
-                    incomingPingTimestamp: incomingPingTimestamp?.dateValue(),
-                    outgoingPingTimestamp: outgoingPingTimestamp?.dateValue()
-                )
+                guard let documents = snapshot?.documents, !documents.isEmpty else {
+                    print("DEBUG: No contacts found in subcollection")
 
-                loadedContacts.append(contact)
-            }
+                    // If we get here, we didn't find contacts in either place
+                    // Return an empty array but consider it a success
+                    DispatchQueue.main.async {
+                        self.contacts = []
+                        print("DEBUG: No contacts found in either location, using empty array")
+                        completion?(true)
+                    }
+                    return
+                }
 
-            // Update contacts list
-            DispatchQueue.main.async {
-                self.contacts = loadedContacts
-                print("Loaded \(loadedContacts.count) contacts from Firestore")
-                completion?(true)
+                print("DEBUG: Found \(documents.count) contact documents in subcollection")
+
+                // Convert Firestore documents to Contact objects
+                var loadedContacts: [Contact] = []
+
+                for document in documents {
+                    let data = document.data()
+                    print("DEBUG: Processing contact document: \(document.documentID)")
+                    print("DEBUG: Document data: \(data)")
+
+                    // Check if this is a placeholder document
+                    if data["placeholder"] as? Bool == true {
+                        print("DEBUG: Skipping placeholder document")
+                        continue
+                    }
+
+                    // Check if this is using the new format with referencePath
+                    if let referencePath = data["referencePath"] as? String {
+                        print("DEBUG: Found contact with referencePath: \(referencePath)")
+
+                        // This is a contact using the new format with cloud functions
+                        // We need to fetch the actual user data from the referenced user document
+
+                        // Extract the user ID from the path (format: "users/userId")
+                        let components = referencePath.components(separatedBy: "/")
+                        if components.count == 2 && components[0] == "users" {
+                            let contactUserId = components[1]
+
+                            // Get the isResponder and isDependent flags from the contact document
+                            let isResponder = data["isResponder"] as? Bool ?? false
+                            let isDependent = data["isDependent"] as? Bool ?? false
+                            let addedAt = data["lastUpdated"] as? Timestamp ?? Timestamp(date: Date())
+
+                            // Fetch the user document to get the name, phone, etc.
+                            let userRef = db.collection(FirestoreSchema.Collections.users).document(contactUserId)
+
+                            // Use a dispatch group to make this synchronous
+                            let group = DispatchGroup()
+                            group.enter()
+
+                            var contactName = "Unknown User"
+                            var contactPhone = ""
+                            var contactNote = ""
+                            var contactQRCodeId: String? = nil
+
+                            userRef.getDocument { userDoc, error in
+                                defer { group.leave() }
+
+                                if let error = error {
+                                    print("DEBUG: Error fetching user document: \(error.localizedDescription)")
+                                    return
+                                }
+
+                                if let userData = userDoc?.data() {
+                                    contactName = userData[FirestoreSchema.User.name] as? String ?? "Unknown User"
+                                    contactPhone = userData[FirestoreSchema.User.phoneNumber] as? String ?? ""
+                                    contactNote = userData[FirestoreSchema.User.note] as? String ?? ""
+                                    contactQRCodeId = userData[FirestoreSchema.User.qrCodeId] as? String
+
+                                    print("DEBUG: Fetched user data - name: \(contactName), phone: \(contactPhone)")
+                                }
+                            }
+
+                            // Wait for the user document fetch to complete
+                            group.wait()
+
+                            // Create a Contact object with the fetched data
+                            let contact = Contact(
+                                id: UUID(uuidString: document.documentID) ?? UUID(),
+                                name: contactName,
+                                phone: contactPhone,
+                                note: contactNote,
+                                qrCodeId: contactQRCodeId,
+                                isResponder: isResponder,
+                                isDependent: isDependent,
+                                addedAt: addedAt.dateValue()
+                            )
+
+                            loadedContacts.append(contact)
+                            print("DEBUG: Added contact from referencePath: \(contact.name), isResponder: \(contact.isResponder), isDependent: \(contact.isDependent)")
+                            continue
+                        }
+                    }
+
+                    // If we get here, try the old format
+                    // Extract required fields
+                    let id = data[FirestoreSchema.Contact.id] as? String
+                    let name = data[FirestoreSchema.Contact.name] as? String
+                    let phone = data[FirestoreSchema.Contact.phoneNumber] as? String
+                    let note = data[FirestoreSchema.Contact.note] as? String
+                    let isResponder = data[FirestoreSchema.Contact.isResponder] as? Bool
+                    let isDependent = data[FirestoreSchema.Contact.isDependent] as? Bool
+                    let addedAtTimestamp = data[FirestoreSchema.Contact.addedAt] as? Timestamp
+
+                    print("DEBUG: Parsed fields - id: \(id ?? "nil"), name: \(name ?? "nil"), isResponder: \(isResponder.map(String.init) ?? "nil"), isDependent: \(isDependent.map(String.init) ?? "nil")")
+
+                    guard let id = id,
+                          let name = name,
+                          let phone = phone,
+                          let note = note,
+                          let isResponder = isResponder,
+                          let isDependent = isDependent,
+                          let addedAtTimestamp = addedAtTimestamp else {
+                        print("DEBUG: Invalid contact data in Firestore document: \(document.documentID)")
+                        print("DEBUG: Missing fields - id: \(id == nil), name: \(name == nil), phone: \(phone == nil), note: \(note == nil), isResponder: \(isResponder == nil), isDependent: \(isDependent == nil), addedAt: \(addedAtTimestamp == nil)")
+                        continue
+                    }
+
+                    // Extract optional fields
+                    let qrCodeId = data[FirestoreSchema.Contact.qrCodeId] as? String
+                    let lastCheckInTimestamp = data[FirestoreSchema.Contact.lastCheckedIn] as? Timestamp
+                    let interval = data[FirestoreSchema.Contact.checkInInterval] as? TimeInterval
+                    let manualAlertActive = data[FirestoreSchema.Contact.manualAlertActive] as? Bool ?? false
+                    let manualAlertTimestamp = data[FirestoreSchema.Contact.manualAlertTimestamp] as? Timestamp
+                    let hasIncomingPing = data[FirestoreSchema.Contact.hasIncomingPing] as? Bool ?? false
+                    let hasOutgoingPing = data[FirestoreSchema.Contact.hasOutgoingPing] as? Bool ?? false
+                    let incomingPingTimestamp = data[FirestoreSchema.Contact.incomingPingTimestamp] as? Timestamp
+                    let outgoingPingTimestamp = data[FirestoreSchema.Contact.outgoingPingTimestamp] as? Timestamp
+
+                    // Create Contact object
+                    let contact = Contact(
+                        id: UUID(uuidString: id) ?? UUID(),
+                        name: name,
+                        phone: phone,
+                        note: note,
+                        qrCodeId: qrCodeId,
+                        isResponder: isResponder,
+                        isDependent: isDependent,
+                        lastCheckIn: lastCheckInTimestamp?.dateValue(),
+                        interval: interval,
+                        addedAt: addedAtTimestamp.dateValue(),
+                        manualAlertActive: manualAlertActive,
+                        manualAlertTimestamp: manualAlertTimestamp?.dateValue(),
+                        hasIncomingPing: hasIncomingPing,
+                        hasOutgoingPing: hasOutgoingPing,
+                        incomingPingTimestamp: incomingPingTimestamp?.dateValue(),
+                        outgoingPingTimestamp: outgoingPingTimestamp?.dateValue()
+                    )
+
+                    loadedContacts.append(contact)
+                }
+
+                // Update contacts list
+                DispatchQueue.main.async {
+                    self.contacts = loadedContacts
+                    print("DEBUG: Loaded \(loadedContacts.count) contacts from Firestore")
+                    print("DEBUG: Responders count: \(self.responders.count), Dependents count: \(self.dependents.count)")
+
+                    // Force refresh the UI
+                    self.postUIRefreshNotifications()
+
+                    completion?(true)
+                }
             }
         }
     }
 
     // MARK: - Status Updates
 
-    /// Updates the count of non-responsive dependents
-    func updateNonResponsiveDependentsCount() {
+    /// Force reload contacts from Firestore and refresh the UI
+    func forceReloadContacts(completion: ((Bool) -> Void)? = nil) {
+        print("DEBUG: Force reloading contacts from Firestore")
+
+        loadContactsFromFirestore { [weak self] success in
+            guard let self = self else {
+                completion?(false)
+                return
+            }
+
+            print("DEBUG: Force reload completed with success: \(success)")
+            print("DEBUG: After force reload - Contacts count: \(self.contacts.count)")
+            print("DEBUG: After force reload - Responders count: \(self.responders.count)")
+            print("DEBUG: After force reload - Dependents count: \(self.dependents.count)")
+
+            // Force refresh the UI
+            self.postUIRefreshNotifications()
+
+            completion?(success)
+        }
+    }
+
+    /// Calculate the count of non-responsive dependents
+    func calculateNonResponsiveDependentsCount() -> Int {
         // Count dependents who are either non-responsive or have a manual alert active
-        let count = contacts.filter { contact in
+        return contacts.filter { contact in
             // Only count dependents
             guard contact.isDependent else { return false }
 
@@ -1427,8 +1766,11 @@ class UserViewModel: ObservableObject {
             // Use the contact's isNonResponsive computed property
             return contact.isNonResponsive
         }.count
+    }
 
-        nonResponsiveDependentsCount = count
+    /// Update the count of non-responsive dependents
+    func updateNonResponsiveDependentsCount() {
+        nonResponsiveDependentsCount = calculateNonResponsiveDependentsCount()
     }
 
     // MARK: - Ping Methods
@@ -1445,7 +1787,7 @@ class UserViewModel: ObservableObject {
     ///   - operation: The type of ping operation
     ///   - contact: The contact to perform the operation on
     ///   - completion: Optional callback with success flag and error
-    private func handlePingOperation(operation: PingOperation, for contact: Contact, completion: ((Bool, Error?) -> Void)? = nil) {
+    func handlePingOperation(operation: PingOperation, for contact: Contact, completion: ((Bool, Error?) -> Void)? = nil) {
         let now = Date()
         let updated = updateLocalContact(contact) { updatedContact in
             switch operation {
@@ -1581,9 +1923,14 @@ class UserViewModel: ObservableObject {
         }
     }
 
+    /// Calculate the count of pending pings
+    func calculatePendingPingsCount() -> Int {
+        return contacts.filter { $0.isResponder && $0.hasIncomingPing }.count
+    }
+
     /// Update the count of pending pings
     func updatePendingPingsCount() {
-        pendingPingsCount = contacts.filter { $0.isResponder && $0.hasIncomingPing }.count
+        pendingPingsCount = calculatePendingPingsCount()
     }
 
     // MARK: - Alert Methods
@@ -1592,7 +1939,7 @@ class UserViewModel: ObservableObject {
     /// - Parameters:
     ///   - isActive: Whether the alert is active
     ///   - completion: Optional callback with success flag and error
-    private func updateAlertStatus(isActive: Bool, completion: ((Bool, Error?) -> Void)? = nil) {
+    func updateAlertStatus(isActive: Bool, completion: ((Bool, Error?) -> Void)? = nil) {
         guard let userId = AuthenticationService.shared.getCurrentUserID() else {
             print("Cannot update alert status: No authenticated user")
             completion?(false, NSError(domain: "UserViewModel", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"]))

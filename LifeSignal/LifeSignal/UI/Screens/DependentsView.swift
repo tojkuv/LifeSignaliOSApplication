@@ -80,23 +80,59 @@ struct DependentsView: View {
 
     var body: some View {
         VStack {
-            ScrollView {
-                LazyVStack(spacing: 12) {
-                    if userViewModel.dependents.isEmpty {
-                        Text("No dependents yet")
-                            .foregroundColor(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.top, 40)
-                    } else {
-                        ForEach(sortedDependents) { dependent in
-                            DependentCard(contact: dependent, refreshID: refreshID)
-                        }
+            if userViewModel.isLoadingContacts {
+                // Show loading indicator
+                VStack {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle())
+                    Text("Loading dependents...")
+                        .foregroundColor(.secondary)
+                        .padding(.top, 8)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error = userViewModel.contactError {
+                // Show error view
+                VStack(spacing: 16) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 50))
+                        .foregroundColor(.red)
+
+                    Text("Error Loading Dependents")
+                        .font(.headline)
+
+                    Text(error.localizedDescription)
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(.secondary)
+
+                    Button("Retry") {
+                        userViewModel.forceReloadContacts()
                     }
+                    .padding()
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
                 }
                 .padding()
-                .padding(.bottom, 30)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        if userViewModel.dependents.isEmpty {
+                            Text("No dependents yet")
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.top, 40)
+                        } else {
+                            ForEach(sortedDependents) { dependent in
+                                DependentCard(contact: dependent, refreshID: refreshID)
+                            }
+                        }
+                    }
+                    .padding()
+                    .padding(.bottom, 30)
+                }
+                .background(Color(.systemBackground))
             }
-            .background(Color(.systemBackground))
         }
         .background(Color(.systemBackground))
         .onAppear {
@@ -107,7 +143,11 @@ struct DependentsView: View {
 
             // Force refresh when view appears to ensure sort is applied
             refreshID = UUID()
-            print("DependentsView appeared with sort mode: \(sortMode.rawValue)")
+
+            // Only reload contacts if they haven't been loaded yet or if there was an error
+            if userViewModel.contacts.isEmpty || userViewModel.contactError != nil {
+                userViewModel.forceReloadContacts()
+            }
         }
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
@@ -163,17 +203,12 @@ struct DependentsView: View {
                         return
                     }
 
-                    // Extract user data
-                    let name = userData[FirestoreSchema.User.name] as? String ?? "Unknown Name"
-                    let phone = userData[FirestoreSchema.User.phoneNumber] as? String ?? ""
-                    let note = userData[FirestoreSchema.User.note] as? String ?? ""
-
-                    // Create a new contact with the user data
+                    // Create a new contact with the user data from the UserViewModel
                     DispatchQueue.main.async {
-                        self.newContact = Contact(
-                            name: name,
-                            phone: phone,
-                            note: note,
+                        self.newContact = Contact.createDefault(
+                            name: userData["name"] as? String ?? "Unknown Name",
+                            phone: userData["phoneNumber"] as? String ?? "",
+                            note: userData["note"] as? String ?? "",
                             qrCodeId: code,
                             isResponder: false,
                             isDependent: true
@@ -332,12 +367,11 @@ struct DependentCard: View {
                 }
             },
             onTap: {
-                triggerHaptic()
                 selectedContactID = ContactID(id: contact.id)
             }
         )
         .sheet(item: $selectedContactID) { id in
-            if let contact = userViewModel.contacts.first(where: { $0.id == id.id }) {
+            if let contact = userViewModel.getContact(by: id.id) {
                 ContactDetailsSheet(contact: contact)
             }
         }
@@ -353,14 +387,17 @@ struct DependentCard: View {
                     title: Text("Clear Ping"),
                     message: Text("Do you want to clear the pending ping to this contact?"),
                     primaryButton: .default(Text("Clear")) {
-                        // Use the view model to clear the ping
-                        userViewModel.clearPing(for: contact)
+                        // Use the view model to clear the ping with completion handler
+                        userViewModel.clearPing(for: contact) { success, error in
+                            if let error = error {
+                                print("Error clearing ping: \(error.localizedDescription)")
+                                return
+                            }
 
-                        // Debug print
-                        print("Clearing ping for contact: \(contact.name)")
-
-                        // Force refresh immediately
-                        NotificationCenter.default.post(name: NSNotification.Name("RefreshDependentsView"), object: nil)
+                            if success {
+                                print("Ping cleared successfully for contact: \(contact.name)")
+                            }
+                        }
                     },
                     secondaryButton: .cancel()
                 )
@@ -369,19 +406,22 @@ struct DependentCard: View {
                     title: Text("Send Ping"),
                     message: Text("Are you sure you want to ping this contact?"),
                     primaryButton: .default(Text("Ping")) {
-                        // Use the view model to ping the dependent
-                        userViewModel.pingDependent(contact)
+                        // Use the view model to ping the dependent with completion handler
+                        userViewModel.pingDependent(contact) { success, error in
+                            if let error = error {
+                                print("Error sending ping: \(error.localizedDescription)")
+                                return
+                            }
 
-                        // Debug print
-                        print("Setting ping for contact: \(contact.name)")
+                            if success {
+                                print("Ping sent successfully to contact: \(contact.name)")
 
-                        // Force refresh immediately
-                        NotificationCenter.default.post(name: NSNotification.Name("RefreshDependentsView"), object: nil)
-
-                        // Show confirmation alert
-                        isPingConfirmation = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            showPingAlert = true
+                                // Show confirmation alert
+                                DispatchQueue.main.async {
+                                    isPingConfirmation = true
+                                    showPingAlert = true
+                                }
+                            }
                         }
                     },
                     secondaryButton: .cancel()
@@ -391,4 +431,4 @@ struct DependentCard: View {
     }
 }
 
-// The partitioned(by:) extension is now defined in RespondersView.swift
+// The partitioned(by:) extension is now defined in ArrayExtensions.swift
