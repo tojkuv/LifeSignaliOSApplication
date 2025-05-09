@@ -1,9 +1,6 @@
 import SwiftUI
 import Foundation
 
-// Import feature view models
-import LifeSignal.Features.CheckIn.CheckInViewModel
-
 struct CountdownView: View {
     @EnvironmentObject private var checkInViewModel: CheckInViewModel
     @State private var showCheckInConfirmation = false

@@ -80,14 +80,14 @@ class UserProfileViewModel: BaseViewModel {
             
             // Update the view model with the user data
             DispatchQueue.main.async {
-                self.name = data[UserFields.name] as? String ?? ""
-                self.phoneNumber = data[UserFields.phoneNumber] as? String ?? ""
-                self.phoneRegion = data[UserFields.phoneRegion] as? String ?? "US"
-                self.profileDescription = data[UserFields.note] as? String ?? ""
-                self.qrCodeId = data[UserFields.qrCodeId] as? String ?? ""
-                self.notificationEnabled = data[UserFields.notificationEnabled] as? Bool ?? true
-                self.profileComplete = data[UserFields.profileComplete] as? Bool ?? false
-                self.fcmToken = data[UserFields.fcmToken] as? String
+                self.name = data[User.Fields.name] as? String ?? ""
+                self.phoneNumber = data[User.Fields.phoneNumber] as? String ?? ""
+                self.phoneRegion = data[User.Fields.phoneRegion] as? String ?? "US"
+                self.profileDescription = data[User.Fields.note] as? String ?? ""
+                self.qrCodeId = data[User.Fields.qrCodeId] as? String ?? ""
+                self.notificationEnabled = data[User.Fields.notificationEnabled] as? Bool ?? true
+                self.profileComplete = data[User.Fields.profileComplete] as? Bool ?? false
+                self.fcmToken = data[User.Fields.fcmToken] as? String
             }
             
             print("User data loaded successfully")
@@ -110,12 +110,12 @@ class UserProfileViewModel: BaseViewModel {
         
         // Prepare the data to update
         let userData: [String: Any] = [
-            UserFields.name: name,
-            UserFields.phoneNumber: phoneNumber,
-            UserFields.phoneRegion: phoneRegion,
-            UserFields.note: profileDescription,
-            UserFields.profileComplete: true,
-            UserFields.lastUpdated: Timestamp(date: Date())
+            User.Fields.name: name,
+            User.Fields.phoneNumber: phoneNumber,
+            User.Fields.phoneRegion: phoneRegion,
+            User.Fields.note: profileDescription,
+            User.Fields.profileComplete: true,
+            User.Fields.lastUpdated: Timestamp(date: Date())
         ]
         
         userRef.updateData(userData) { [weak self] error in
@@ -161,8 +161,8 @@ class UserProfileViewModel: BaseViewModel {
         let userRef = db.collection(FirestoreCollections.users).document(userId)
         
         userRef.updateData([
-            UserFields.notificationEnabled: enabled,
-            UserFields.lastUpdated: Timestamp(date: Date())
+            User.Fields.notificationEnabled: enabled,
+            User.Fields.lastUpdated: Timestamp(date: Date())
         ]) { [weak self] error in
             guard let self = self else { return }
             
@@ -199,14 +199,14 @@ class UserProfileViewModel: BaseViewModel {
         let userRef = db.collection(FirestoreCollections.users).document(userId)
         
         var updateData: [String: Any] = [
-            UserFields.lastUpdated: Timestamp(date: Date())
+            User.Fields.lastUpdated: Timestamp(date: Date())
         ]
         
         if let token = token {
-            updateData[UserFields.fcmToken] = token
+            updateData[User.Fields.fcmToken] = token
         } else {
             // If token is nil, remove the field
-            updateData[UserFields.fcmToken] = FieldValue.delete()
+            updateData[User.Fields.fcmToken] = FieldValue.delete()
         }
         
         userRef.updateData(updateData) { error in

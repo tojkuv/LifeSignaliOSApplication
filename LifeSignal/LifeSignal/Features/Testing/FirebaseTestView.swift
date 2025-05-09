@@ -3,9 +3,6 @@ import FirebaseCore
 import FirebaseFirestore
 import FirebaseAuth
 
-// Import feature view models
-import LifeSignal.Features.Profile.UserProfileViewModel
-
 struct FirebaseTestView: View {
     @State private var firebaseStatus: String = "Checking Firebase status..."
     @State private var firestoreStatus: String = "Firestore not tested yet"

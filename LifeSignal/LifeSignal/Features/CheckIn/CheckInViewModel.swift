@@ -87,8 +87,8 @@ class CheckInViewModel: BaseViewModel {
         let userRef = db.collection(FirestoreCollections.users).document(userId)
         
         userRef.updateData([
-            UserFields.lastCheckedIn: Timestamp(date: lastCheckedIn),
-            UserFields.lastUpdated: Timestamp(date: Date())
+            User.Fields.lastCheckedIn: Timestamp(date: lastCheckedIn),
+            User.Fields.lastUpdated: Timestamp(date: Date())
         ]) { [weak self] error in
             guard let self = self else { return }
             
@@ -128,8 +128,8 @@ class CheckInViewModel: BaseViewModel {
         let userRef = db.collection(FirestoreCollections.users).document(userId)
         
         userRef.updateData([
-            UserFields.checkInInterval: interval,
-            UserFields.lastUpdated: Timestamp(date: Date())
+            User.Fields.checkInInterval: interval,
+            User.Fields.lastUpdated: Timestamp(date: Date())
         ]) { [weak self] error in
             guard let self = self else { return }
             
@@ -171,9 +171,9 @@ class CheckInViewModel: BaseViewModel {
         let userRef = db.collection(FirestoreCollections.users).document(userId)
         
         userRef.updateData([
-            UserFields.notify30MinBefore: notify30MinBefore,
-            UserFields.notify2HoursBefore: notify2HoursBefore,
-            UserFields.lastUpdated: Timestamp(date: Date())
+            User.Fields.notify30MinBefore: notify30MinBefore,
+            User.Fields.notify2HoursBefore: notify2HoursBefore,
+            User.Fields.lastUpdated: Timestamp(date: Date())
         ]) { [weak self] error in
             guard let self = self else { return }
             

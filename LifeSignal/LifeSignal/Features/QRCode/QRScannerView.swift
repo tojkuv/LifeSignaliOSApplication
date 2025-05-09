@@ -5,9 +5,6 @@ import Vision
 import Photos
 import UIKit
 
-// Import feature view models
-import LifeSignal.Features.Profile.UserProfileViewModel
-
 struct QRScannerView: View {
     let onScanned: (String) -> Void
     @Environment(\.presentationMode) private var presentationMode

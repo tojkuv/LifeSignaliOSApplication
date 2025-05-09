@@ -57,60 +57,60 @@ extension User {
     /// - Returns: Dictionary representation for Firestore
     func toFirestoreData() -> [String: Any] {
         var data: [String: Any] = [
-            UserFields.name: name,
-            UserFields.phoneNumber: phoneNumber,
-            UserFields.phoneRegion: phoneRegion,
-            UserFields.note: note,
-            UserFields.qrCodeId: qrCodeId,
-            UserFields.profileComplete: profileComplete,
-            UserFields.notificationEnabled: notificationEnabled,
-            UserFields.testUser: testUser,
-            UserFields.lastUpdated: Timestamp(date: lastUpdated),
-            UserFields.createdAt: Timestamp(date: createdAt)
+            User.Fields.name: name,
+            User.Fields.phoneNumber: phoneNumber,
+            User.Fields.phoneRegion: phoneRegion,
+            User.Fields.note: note,
+            User.Fields.qrCodeId: qrCodeId,
+            User.Fields.profileComplete: profileComplete,
+            User.Fields.notificationEnabled: notificationEnabled,
+            User.Fields.testUser: testUser,
+            User.Fields.lastUpdated: Timestamp(date: lastUpdated),
+            User.Fields.createdAt: Timestamp(date: createdAt)
         ]
         
         // Add check-in related fields if they exist
         if let checkInInterval = _checkInInterval {
-            data[UserFields.checkInInterval] = checkInInterval
+            data[User.Fields.checkInInterval] = checkInInterval
         }
         
         if let lastCheckedIn = _lastCheckedIn {
-            data[UserFields.lastCheckedIn] = Timestamp(date: lastCheckedIn)
+            data[User.Fields.lastCheckedIn] = Timestamp(date: lastCheckedIn)
         }
         
         if let notify30MinBefore = _notify30MinBefore {
-            data[UserFields.notify30MinBefore] = notify30MinBefore
+            data[User.Fields.notify30MinBefore] = notify30MinBefore
         }
         
         if let notify2HoursBefore = _notify2HoursBefore {
-            data[UserFields.notify2HoursBefore] = notify2HoursBefore
+            data[User.Fields.notify2HoursBefore] = notify2HoursBefore
         }
         
         // Add optional fields if they exist
         if let fcmToken = fcmToken {
-            data[UserFields.fcmToken] = fcmToken
+            data[User.Fields.fcmToken] = fcmToken
         }
         
         if let sessionId = sessionId {
-            data[UserFields.sessionId] = sessionId
+            data[User.Fields.sessionId] = sessionId
         }
         
         if let lastSignInTime = lastSignInTime {
-            data[UserFields.lastSignInTime] = Timestamp(date: lastSignInTime)
+            data[User.Fields.lastSignInTime] = Timestamp(date: lastSignInTime)
         }
         
         // Add contacts-related fields if they exist
         if let manualAlertActive = _manualAlertActive {
-            data[UserFields.manualAlertActive] = manualAlertActive
+            data[User.Fields.manualAlertActive] = manualAlertActive
         }
         
         if let manualAlertTimestamp = manualAlertTimestamp {
-            data[UserFields.manualAlertTimestamp] = Timestamp(date: manualAlertTimestamp)
+            data[User.Fields.manualAlertTimestamp] = Timestamp(date: manualAlertTimestamp)
         }
         
         // Convert contacts to Firestore data
         if let contacts = _contacts, !contacts.isEmpty {
-            data[UserFields.contacts] = contacts.map { $0.toFirestoreData() }
+            data[User.Fields.contacts] = contacts.map { $0.toFirestoreData() }
         }
         
         return data
@@ -122,64 +122,64 @@ extension User {
     ///   - id: The user ID (Firestore document ID)
     /// - Returns: A new User instance, or nil if required data is missing
     static func fromFirestore(_ data: [String: Any], id: String) -> User? {
-        guard let qrCodeId = data[UserFields.qrCodeId] as? String else {
+        guard let qrCodeId = data[User.Fields.qrCodeId] as? String else {
             return nil
         }
         
         var user = User(
             id: id,
-            name: data[UserFields.name] as? String ?? "",
-            phoneNumber: data[UserFields.phoneNumber] as? String ?? "",
+            name: data[User.Fields.name] as? String ?? "",
+            phoneNumber: data[User.Fields.phoneNumber] as? String ?? "",
             qrCodeId: qrCodeId
         )
         
         // Set basic properties
-        user.phoneRegion = data[UserFields.phoneRegion] as? String ?? "US"
-        user.note = data[UserFields.note] as? String ?? ""
+        user.phoneRegion = data[User.Fields.phoneRegion] as? String ?? "US"
+        user.note = data[User.Fields.note] as? String ?? ""
         
         // Set timestamps
-        if let createdAt = data[UserFields.createdAt] as? Timestamp {
+        if let createdAt = data[User.Fields.createdAt] as? Timestamp {
             user.createdAt = createdAt.dateValue()
         }
         
-        if let lastSignInTime = data[UserFields.lastSignInTime] as? Timestamp {
+        if let lastSignInTime = data[User.Fields.lastSignInTime] as? Timestamp {
             user.lastSignInTime = lastSignInTime.dateValue()
         }
         
-        if let lastUpdated = data[UserFields.lastUpdated] as? Timestamp {
+        if let lastUpdated = data[User.Fields.lastUpdated] as? Timestamp {
             user.lastUpdated = lastUpdated.dateValue()
         }
         
         // Set boolean flags
-        user.profileComplete = data[UserFields.profileComplete] as? Bool ?? false
-        user.notificationEnabled = data[UserFields.notificationEnabled] as? Bool ?? true
-        user.testUser = data[UserFields.testUser] as? Bool ?? false
+        user.profileComplete = data[User.Fields.profileComplete] as? Bool ?? false
+        user.notificationEnabled = data[User.Fields.notificationEnabled] as? Bool ?? true
+        user.testUser = data[User.Fields.testUser] as? Bool ?? false
         
         // Set optional string properties
-        user._fcmToken = data[UserFields.fcmToken] as? String
-        user._sessionId = data[UserFields.sessionId] as? String
+        user._fcmToken = data[User.Fields.fcmToken] as? String
+        user._sessionId = data[User.Fields.sessionId] as? String
         
         // Set check-in related properties
-        if let checkInInterval = data[UserFields.checkInInterval] as? TimeInterval {
+        if let checkInInterval = data[User.Fields.checkInInterval] as? TimeInterval {
             user._checkInInterval = checkInInterval
         }
         
-        if let lastCheckedIn = data[UserFields.lastCheckedIn] as? Timestamp {
+        if let lastCheckedIn = data[User.Fields.lastCheckedIn] as? Timestamp {
             user._lastCheckedIn = lastCheckedIn.dateValue()
         }
         
-        user._notify30MinBefore = data[UserFields.notify30MinBefore] as? Bool
-        user._notify2HoursBefore = data[UserFields.notify2HoursBefore] as? Bool
+        user._notify30MinBefore = data[User.Fields.notify30MinBefore] as? Bool
+        user._notify2HoursBefore = data[User.Fields.notify2HoursBefore] as? Bool
         
         // Set contacts-related properties
-        user._manualAlertActive = data[UserFields.manualAlertActive] as? Bool
+        user._manualAlertActive = data[User.Fields.manualAlertActive] as? Bool
         
-        if let manualAlertTimestamp = data[UserFields.manualAlertTimestamp] as? Timestamp {
+        if let manualAlertTimestamp = data[User.Fields.manualAlertTimestamp] as? Timestamp {
             user._manualAlertTimestamp = manualAlertTimestamp.dateValue()
         }
         
         // Process contacts array
-        if let contactsArray = data[UserFields.contacts] as? [[String: Any]] {
+        if let contactsArray = data[User.Fields.contacts] as? [[String: Any]] {
             user._contacts = contactsArray.compactMap { ContactReference.fromFirestore($0) }
         }
         

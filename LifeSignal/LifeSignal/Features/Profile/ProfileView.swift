@@ -1,9 +1,6 @@
 import SwiftUI
 import Foundation
 
-// Import feature view models
-import LifeSignal.Features.Profile.UserProfileViewModel
-
 struct ProfileView: View {
     @EnvironmentObject private var userProfileViewModel: UserProfileViewModel
     @EnvironmentObject private var appState: AppState

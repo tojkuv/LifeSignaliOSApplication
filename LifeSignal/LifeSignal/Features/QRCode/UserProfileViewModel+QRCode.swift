@@ -2,9 +2,6 @@ import Foundation
 import FirebaseFirestore
 import UIKit
 
-// Import feature view models
-import LifeSignal.Features.Profile.UserProfileViewModel
-
 /// Extension to add QR code functionality to the UserProfileViewModel
 extension UserProfileViewModel {
     /// Generate a new QR code for the user

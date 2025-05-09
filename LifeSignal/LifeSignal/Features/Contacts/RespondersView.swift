@@ -3,9 +3,6 @@ import Foundation
 import AVFoundation
 import UIKit
 
-// Import feature view models
-import LifeSignal.Features.Contacts.ContactsViewModel
-
 struct RespondersView: View {
     @EnvironmentObject var contactsViewModel: ContactsViewModel
     @State private var showQRScanner = false
@@ -172,9 +169,9 @@ struct RespondersView: View {
                     // Create a new contact with the user data
                     DispatchQueue.main.async {
                         self.newContact = ContactReference.createDefault(
-                            name: userData[UserFields.name] as? String ?? "Unknown Name",
-                            phone: userData[UserFields.phoneNumber] as? String ?? "",
-                            note: userData[UserFields.note] as? String ?? "",
+                            name: userData[User.Fields.name] as? String ?? "Unknown Name",
+                            phone: userData[User.Fields.phoneNumber] as? String ?? "",
+                            note: userData[User.Fields.note] as? String ?? "",
                             qrCodeId: code,
                             isResponder: true,
                             isDependent: false

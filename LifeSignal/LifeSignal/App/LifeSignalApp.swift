@@ -3,11 +3,6 @@ import FirebaseCore
 import FirebaseAuth
 import FirebaseFirestore
 
-// Import feature view models
-import LifeSignal.Features.Profile.UserProfileViewModel
-import LifeSignal.Features.Contacts.ContactsViewModel
-import LifeSignal.Features.CheckIn.CheckInViewModel
-
 @main
 struct LifeSignalApp: App {
     // Register the AppDelegate for orientation lock

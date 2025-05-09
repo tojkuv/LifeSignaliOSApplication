@@ -1,8 +1,5 @@
 import SwiftUI
 
-// Import feature view models
-import LifeSignal.Features.Profile.UserProfileViewModel
-
 struct IntervalPickerView: View {
     @Environment(\.presentationMode) var presentationMode
     @EnvironmentObject private var userProfileViewModel: UserProfileViewModel

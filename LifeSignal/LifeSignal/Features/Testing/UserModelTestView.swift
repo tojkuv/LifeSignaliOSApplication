@@ -2,9 +2,6 @@ import SwiftUI
 import FirebaseFirestore
 import FirebaseAuth
 
-// Import feature view models
-import LifeSignal.Features.Profile.UserProfileViewModel
-
 struct UserModelTestView: View {
     @EnvironmentObject private var userProfileViewModel: UserProfileViewModel
 

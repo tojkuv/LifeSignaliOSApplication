@@ -2,9 +2,6 @@ import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
 
-// Import feature view models
-import LifeSignal.Features.Profile.UserProfileViewModel
-
 struct OnboardingView: View {
     @EnvironmentObject private var userProfileViewModel: UserProfileViewModel
     @Binding var needsOnboarding: Bool

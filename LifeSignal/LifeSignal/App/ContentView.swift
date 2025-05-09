@@ -2,17 +2,6 @@ import SwiftUI
 import Foundation
 import UIKit
 
-// Import feature view models
-import LifeSignal.Features.Profile.UserProfileViewModel
-import LifeSignal.Features.Contacts.ContactsViewModel
-
-// Import feature views
-@_exported import struct LifeSignal.Features.Home.HomeView
-@_exported import struct LifeSignal.Features.Contacts.RespondersView
-@_exported import struct LifeSignal.Features.Contacts.DependentsView
-@_exported import struct LifeSignal.Features.CheckIn.CountdownView
-@_exported import struct LifeSignal.Features.Profile.ProfileView
-
 /// The main content view of the app
 struct ContentView: View {
     @EnvironmentObject private var userProfileViewModel: UserProfileViewModel

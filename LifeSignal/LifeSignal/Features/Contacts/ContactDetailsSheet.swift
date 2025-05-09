@@ -2,9 +2,6 @@ import SwiftUI
 import Foundation
 import UIKit
 
-// Import feature view models
-import LifeSignal.Features.Contacts.ContactsViewModel
-
 struct ContactDetailsSheet: View {
     let contactID: String // Store the contact ID instead of a binding
     @Environment(\.presentationMode) private var presentationMode

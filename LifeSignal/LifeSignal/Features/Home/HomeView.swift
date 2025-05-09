@@ -4,10 +4,6 @@ import AVFoundation
 import UIKit
 import FirebaseFirestore
 
-// Import feature view models
-import LifeSignal.Features.Profile.UserProfileViewModel
-import LifeSignal.Features.Contacts.ContactsViewModel
-
 struct HomeView: View {
     @EnvironmentObject private var userProfileViewModel: UserProfileViewModel
     @EnvironmentObject private var contactsViewModel: ContactsViewModel
@@ -292,9 +288,9 @@ struct HomeView: View {
                     // Create a new contact with the user data
                     DispatchQueue.main.async {
                         self.newContact = ContactReference.createDefault(
-                            name: userData[UserFields.name] as? String ?? "Unknown Name",
-                            phone: userData[UserFields.phoneNumber] as? String ?? "",
-                            note: userData[UserFields.note] as? String ?? "",
+                            name: userData[User.Fields.name] as? String ?? "Unknown Name",
+                            phone: userData[User.Fields.phoneNumber] as? String ?? "",
+                            note: userData[User.Fields.note] as? String ?? "",
                             qrCodeId: code,
                             isResponder: false,
                             isDependent: false
