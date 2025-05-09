@@ -7,14 +7,14 @@ struct QRCodeCardView: View {
     let qrCodeId: String
     let footer: String
     @State private var showShareSheet = false
-    
+
     var body: some View {
         VStack(spacing: 0) {
             // Avatar at the top, overlapping the card
             AvatarView(name: name, size: 80)
                 .offset(y: -40)
                 .padding(.bottom, -40)
-            
+
             // Card content
             VStack(spacing: 16) {
                 // Name and subtitle
@@ -22,13 +22,13 @@ struct QRCodeCardView: View {
                     Text(name)
                         .font(.headline)
                         .multilineTextAlignment(.center)
-                    
+
                     Text(subtitle)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
                 .padding(.top, 40)
-                
+
                 // QR Code
                 if !qrCodeId.isEmpty {
                     QRCodeView(qrCodeId: qrCodeId, size: 200)
@@ -43,7 +43,7 @@ struct QRCodeCardView: View {
                                 .foregroundColor(.secondary)
                         )
                 }
-                
+
                 // Footer text
                 if !footer.isEmpty {
                     Text(footer)
@@ -52,7 +52,7 @@ struct QRCodeCardView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
                 }
-                
+
                 // Share button
                 Button(action: {
                     showShareSheet = true
@@ -85,76 +85,33 @@ struct QRCodeCardView: View {
     }
 }
 
-struct QRCodeView: View {
-    let qrCodeId: String
-    let size: CGFloat
-    
-    var body: some View {
-        if let qrImage = generateQRCode(from: qrCodeId, size: CGSize(width: size, height: size)) {
-            Image(uiImage: qrImage)
-                .interpolation(.none)
-                .resizable()
-                .scaledToFit()
-                .frame(width: size, height: size)
-        } else {
-            Rectangle()
-                .fill(Color.gray.opacity(0.3))
-                .frame(width: size, height: size)
-                .overlay(
-                    Text("QR Code Error")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                )
-        }
-    }
-    
-    private func generateQRCode(from string: String, size: CGSize) -> UIImage? {
-        guard let data = string.data(using: .utf8) else { return nil }
-        
-        if let filter = CIFilter(name: "CIQRCodeGenerator") {
-            filter.setValue(data, forKey: "inputMessage")
-            filter.setValue("H", forKey: "inputCorrectionLevel") // High error correction
-            
-            if let outputImage = filter.outputImage {
-                let scale = min(size.width, size.height) / outputImage.extent.width
-                let scaledImage = outputImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-                
-                let context = CIContext()
-                if let cgImage = context.createCGImage(scaledImage, from: scaledImage.extent) {
-                    return UIImage(cgImage: cgImage)
-                }
-            }
-        }
-        
-        return nil
-    }
-}
+// Note: This is now defined in QRCodeView.swift
 
 struct QRCodeShareView: View {
     let name: String
     let qrCodeId: String
     @Environment(\.presentationMode) var presentationMode
-    
+
     var body: some View {
         NavigationView {
             VStack(spacing: 20) {
                 Text("Share Your QR Code")
                     .font(.headline)
                     .padding(.top)
-                
+
                 Text("Let others scan this QR code to add you as a contact")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
-                
+
                 QRCodeView(qrCodeId: qrCodeId, size: 250)
                     .padding()
-                
+
                 Text(name)
                     .font(.title3)
                     .fontWeight(.bold)
-                
+
                 Button(action: {
                     shareQRCode()
                 }) {
@@ -167,7 +124,7 @@ struct QRCodeShareView: View {
                         .cornerRadius(8)
                 }
                 .padding(.horizontal)
-                
+
                 Spacer()
             }
             .padding()
@@ -176,58 +133,37 @@ struct QRCodeShareView: View {
             })
         }
     }
-    
+
     private func shareQRCode() {
-        guard let qrImage = generateQRCode(from: qrCodeId, size: CGSize(width: 300, height: 300)) else {
+        guard let qrImage = QRCodeGenerator.generateQRCode(from: qrCodeId, size: CGSize(width: 300, height: 300)) else {
             return
         }
-        
+
         let activityItem = QRCodeActivityItem(
             title: "\(name)'s LifeSignal QR Code",
             image: qrImage
         )
-        
+
         let activityViewController = UIActivityViewController(
             activityItems: [activityItem],
             applicationActivities: nil
         )
-        
+
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let rootViewController = windowScene.windows.first?.rootViewController {
             rootViewController.present(activityViewController, animated: true, completion: nil)
         }
-    }
-    
-    private func generateQRCode(from string: String, size: CGSize) -> UIImage? {
-        guard let data = string.data(using: .utf8) else { return nil }
-        
-        if let filter = CIFilter(name: "CIQRCodeGenerator") {
-            filter.setValue(data, forKey: "inputMessage")
-            filter.setValue("H", forKey: "inputCorrectionLevel") // High error correction
-            
-            if let outputImage = filter.outputImage {
-                let scale = min(size.width, size.height) / outputImage.extent.width
-                let scaledImage = outputImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-                
-                let context = CIContext()
-                if let cgImage = context.createCGImage(scaledImage, from: scaledImage.extent) {
-                    return UIImage(cgImage: cgImage)
-                }
-            }
-        }
-        
-        return nil
     }
 }
 
 struct QRCodeActivityItem: UIActivityItemProvider {
     let title: String
     let image: UIImage
-    
+
     override var item: Any {
         return image
     }
-    
+
     override func activityViewController(_ activityViewController: UIActivityViewController, subjectForActivityType activityType: UIActivity.ActivityType?) -> String {
         return title
     }

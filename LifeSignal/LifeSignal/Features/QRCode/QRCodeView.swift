@@ -1,48 +1,42 @@
 import SwiftUI
-import CoreImage.CIFilterBuiltins
 import UIKit
 
 /// A view that generates and displays a QR code
 struct QRCodeView: View {
     let qrContent: String
     let backgroundColor: Color
+    let size: CGFloat
 
-    init(qrContent: String, backgroundColor: Color = .white) {
+    init(qrContent: String, size: CGFloat = 200, backgroundColor: Color = .white) {
         self.qrContent = qrContent
+        self.size = size
+        self.backgroundColor = backgroundColor
+    }
+
+    init(qrCodeId: String, size: CGFloat = 200, backgroundColor: Color = .white) {
+        self.qrContent = qrCodeId
+        self.size = size
         self.backgroundColor = backgroundColor
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            let size = min(geometry.size.width, geometry.size.height)
-            let qrCode = generateQRCode(from: qrContent)
-
-            Image(uiImage: qrCode)
-                .resizable()
+        if let qrImage = QRCodeGenerator.generateQRCode(from: qrContent, size: CGSize(width: size, height: size)) {
+            Image(uiImage: qrImage)
                 .interpolation(.none)
+                .resizable()
                 .scaledToFit()
                 .frame(width: size, height: size)
                 .background(backgroundColor)
+        } else {
+            Rectangle()
+                .fill(Color.gray.opacity(0.3))
+                .frame(width: size, height: size)
+                .overlay(
+                    Text("QR Code Error")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                )
         }
-    }
-
-    /// Generates a QR code image from a string
-    /// - Parameter string: The string to encode in the QR code
-    /// - Returns: A UIImage containing the QR code
-    private func generateQRCode(from string: String) -> UIImage {
-        let data = string.data(using: .ascii, allowLossyConversion: false)
-        let filter = CIFilter.qrCodeGenerator()
-        filter.setValue(data, forKey: "inputMessage")
-
-        let transform = CGAffineTransform(scaleX: 10, y: 10)
-        let output = filter.outputImage?.transformed(by: transform)
-
-        let context = CIContext()
-        guard let cgImage = context.createCGImage(output ?? CIImage(), from: output?.extent ?? CGRect.zero) else {
-            return UIImage()
-        }
-
-        return UIImage(cgImage: cgImage)
     }
 }
 

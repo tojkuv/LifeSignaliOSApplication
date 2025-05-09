@@ -6,7 +6,7 @@ struct SettingRow: View {
     let icon: String
     var showDivider: Bool = true
     var action: (() -> Void)? = nil
-    
+
     var body: some View {
         Button(action: {
             action?()
@@ -15,20 +15,20 @@ struct SettingRow: View {
                 Image(systemName: icon)
                     .foregroundColor(.blue)
                     .frame(width: 25, height: 25)
-                
+
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
                         .font(.headline)
                         .foregroundColor(.primary)
-                    
+
                     Text(value)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                 }
-                
+
                 Spacer()
-                
+
                 if action != nil {
                     Image(systemName: "chevron.right")
                         .foregroundColor(.secondary)
@@ -51,7 +51,7 @@ struct SettingRow: View {
     }
 }
 
-// Original SettingRow from UI/Components
+// Original SettingRow (legacy version)
 struct SettingRowOriginal: View {
     let icon: String
     let title: String
@@ -136,14 +136,14 @@ struct ToggleSettingRow: View {
             icon: "person.fill",
             showDivider: true
         )
-        
+
         SettingRow(
             title: "Phone",
             value: "+1 (555) 123-4567",
             icon: "phone.fill",
             showDivider: true
         )
-        
+
         SettingRow(
             title: "Email",
             value: "john.doe@example.com",

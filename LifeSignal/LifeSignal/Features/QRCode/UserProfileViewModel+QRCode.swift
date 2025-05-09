@@ -18,7 +18,7 @@ extension UserProfileViewModel {
         isLoading = true
 
         // Generate a new QR code ID
-        let newQRCodeId = UUID().uuidString
+        let newQRCodeId = QRCodeGenerator.generateQRCodeId()
 
         // Update the local state immediately for better UX
         qrCodeId = newQRCodeId
@@ -99,25 +99,6 @@ extension UserProfileViewModel {
             return nil
         }
 
-        guard let data = qrCodeId.data(using: .utf8) else {
-            return nil
-        }
-
-        if let filter = CIFilter(name: "CIQRCodeGenerator") {
-            filter.setValue(data, forKey: "inputMessage")
-            filter.setValue("H", forKey: "inputCorrectionLevel") // High error correction
-
-            if let outputImage = filter.outputImage {
-                let scale = min(size.width, size.height) / outputImage.extent.width
-                let scaledImage = outputImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-
-                let context = CIContext()
-                if let cgImage = context.createCGImage(scaledImage, from: scaledImage.extent) {
-                    return UIImage(cgImage: cgImage)
-                }
-            }
-        }
-
-        return nil
+        return QRCodeGenerator.generateQRCode(from: qrCodeId, size: size)
     }
 }

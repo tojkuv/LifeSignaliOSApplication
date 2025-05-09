@@ -1,39 +1,6 @@
 import Foundation
 import FirebaseFirestore
 
-/// Constants for contact reference field names
-struct ContactReferenceFields {
-    /// Path to the contact's user document
-    static let referencePath = "referencePath"
-
-    /// Whether this contact is a responder for the user
-    static let isResponder = "isResponder"
-
-    /// Whether this contact is a dependent of the user
-    static let isDependent = "isDependent"
-
-    /// Whether to send pings to this contact
-    static let sendPings = "sendPings"
-
-    /// Whether to receive pings from this contact
-    static let receivePings = "receivePings"
-
-    /// Whether to notify this contact on check-in
-    static let notifyOnCheckIn = "notifyOnCheckIn"
-
-    /// Whether to notify this contact on check-in expiry
-    static let notifyOnExpiry = "notifyOnExpiry"
-
-    /// Optional nickname for this contact
-    static let nickname = "nickname"
-
-    /// Optional notes about this contact
-    static let notes = "notes"
-
-    /// When this contact was last updated
-    static let lastUpdated = "lastUpdated"
-}
-
 /// Model representing a contact reference in a user's contacts array in Firestore
 ///
 /// This model is used to represent the relationship between two users in the Firestore database.
@@ -42,6 +9,78 @@ struct ContactReferenceFields {
 ///
 /// This model is primarily used when reading from and writing to Firestore.
 struct ContactReference: Identifiable, Codable {
+    /// Constants for contact reference field names
+    struct Fields {
+        // MARK: - Relationship Properties
+
+        /// Path to the contact's user document
+        static let referencePath = "referencePath"
+
+        /// Whether this contact is a responder for the user
+        static let isResponder = "isResponder"
+
+        /// Whether this contact is a dependent of the user
+        static let isDependent = "isDependent"
+
+        /// Whether to send pings to this contact
+        static let sendPings = "sendPings"
+
+        /// Whether to receive pings from this contact
+        static let receivePings = "receivePings"
+
+        /// Optional nickname for this contact
+        static let nickname = "nickname"
+
+        /// Optional notes about this contact
+        static let notes = "notes"
+
+        /// When this contact was last updated
+        static let lastUpdated = "lastUpdated"
+
+        // MARK: - User Data Properties
+
+        /// User's full name
+        static let name = "name"
+
+        /// User's phone number
+        static let phone = "phone"
+
+        /// User's emergency profile description
+        static let note = "note"
+
+        /// User's QR code ID
+        static let qrCodeId = "qrCodeId"
+
+        /// When this contact was added
+        static let addedAt = "addedAt"
+
+        /// User's last check-in time
+        static let lastCheckIn = "lastCheckIn"
+
+        /// User's check-in interval in seconds
+        static let interval = "interval"
+
+        // MARK: - Alert and Ping Properties
+
+        /// Whether this contact has an active manual alert
+        static let manualAlertActive = "manualAlertActive"
+
+        /// Timestamp when the manual alert was activated
+        static let manualAlertTimestamp = "manualAlertTimestamp"
+
+        /// Whether this contact has an incoming ping
+        static let hasIncomingPing = "hasIncomingPing"
+
+        /// Whether this contact has an outgoing ping
+        static let hasOutgoingPing = "hasOutgoingPing"
+
+        /// Timestamp when the incoming ping was received
+        static let incomingPingTimestamp = "incomingPingTimestamp"
+
+        /// Timestamp when the outgoing ping was sent
+        static let outgoingPingTimestamp = "outgoingPingTimestamp"
+    }
+
     // MARK: - Relationship Properties
 
     /// Whether this contact is a responder for the user
@@ -58,12 +97,6 @@ struct ContactReference: Identifiable, Codable {
 
     /// Whether to receive pings from this contact
     var receivePings: Bool = true
-
-    /// Whether to notify this contact on check-in
-    var notifyOnCheckIn: Bool = true
-
-    /// Whether to notify this contact on check-in expiry
-    var notifyOnExpiry: Bool = true
 
     /// Optional nickname for this contact
     var nickname: String?
@@ -126,27 +159,28 @@ struct ContactReference: Identifiable, Codable {
 
     // MARK: - Initialization
 
-    /// Initialize a new ContactReference
+    /// Initialize a new ContactReference with all properties
     /// - Parameters:
     ///   - userId: The user ID of the contact
     ///   - isResponder: Whether this contact is a responder
     ///   - isDependent: Whether this contact is a dependent
-    init(userId: String, isResponder: Bool, isDependent: Bool) {
-        self.referencePath = "users/\(userId)"
-        self.isResponder = isResponder
-        self.isDependent = isDependent
-    }
-
-    /// Initialize a new ContactReference with user data
-    /// - Parameters:
-    ///   - userId: The user ID of the contact
     ///   - name: User's full name
     ///   - phone: User's phone number
     ///   - note: User's emergency profile description
     ///   - qrCodeId: User's QR code ID
-    ///   - isResponder: Whether this contact is a responder
-    ///   - isDependent: Whether this contact is a dependent
-    init(userId: String, name: String, phone: String = "", note: String = "", qrCodeId: String? = nil, isResponder: Bool, isDependent: Bool) {
+    ///   - sendPings: Whether to send pings to this contact
+    ///   - receivePings: Whether to receive pings from this contact
+    init(
+        userId: String,
+        isResponder: Bool,
+        isDependent: Bool,
+        name: String = "Unknown User",
+        phone: String = "",
+        note: String = "",
+        qrCodeId: String? = nil,
+        sendPings: Bool = true,
+        receivePings: Bool = true
+    ) {
         self.referencePath = "users/\(userId)"
         self.isResponder = isResponder
         self.isDependent = isDependent
@@ -154,9 +188,11 @@ struct ContactReference: Identifiable, Codable {
         self.phone = phone
         self.note = note
         self.qrCodeId = qrCodeId
+        self.sendPings = sendPings
+        self.receivePings = receivePings
     }
 
-    /// Create a default ContactReference for display in UI
+    /// Create a default ContactReference for display in UI previews
     /// - Parameters:
     ///   - name: User's full name
     ///   - phone: User's phone number
@@ -164,13 +200,23 @@ struct ContactReference: Identifiable, Codable {
     ///   - qrCodeId: User's QR code ID
     ///   - isResponder: Whether this contact is a responder
     ///   - isDependent: Whether this contact is a dependent
-    static func createDefault(name: String, phone: String = "", note: String = "", qrCodeId: String? = nil, isResponder: Bool = false, isDependent: Bool = false) -> ContactReference {
-        var contact = ContactReference(userId: UUID().uuidString, isResponder: isResponder, isDependent: isDependent)
-        contact.name = name
-        contact.phone = phone
-        contact.note = note
-        contact.qrCodeId = qrCodeId
-        return contact
+    static func createDefault(
+        name: String,
+        phone: String = "",
+        note: String = "",
+        qrCodeId: String? = nil,
+        isResponder: Bool = false,
+        isDependent: Bool = false
+    ) -> ContactReference {
+        return ContactReference(
+            userId: UUID().uuidString,
+            isResponder: isResponder,
+            isDependent: isDependent,
+            name: name,
+            phone: phone,
+            note: note,
+            qrCodeId: qrCodeId
+        )
     }
 
     // MARK: - Computed Properties
@@ -218,30 +264,66 @@ struct ContactReference: Identifiable, Codable {
             return "\(hours)h \(minutes)m"
         }
     }
+}
 
-    // MARK: - Firestore Methods
-
+// MARK: - Firestore Methods
+extension ContactReference {
     /// Convert to Firestore data
     /// - Returns: Dictionary representation for Firestore
     func toFirestoreData() -> [String: Any] {
         var data: [String: Any] = [
-            ContactReferenceFields.referencePath: referencePath,
-            ContactReferenceFields.isResponder: isResponder,
-            ContactReferenceFields.isDependent: isDependent,
-            ContactReferenceFields.sendPings: sendPings,
-            ContactReferenceFields.receivePings: receivePings,
-            ContactReferenceFields.notifyOnCheckIn: notifyOnCheckIn,
-            ContactReferenceFields.notifyOnExpiry: notifyOnExpiry,
-            ContactReferenceFields.lastUpdated: Timestamp(date: lastUpdated)
+            Fields.referencePath: referencePath,
+            Fields.isResponder: isResponder,
+            Fields.isDependent: isDependent,
+            Fields.sendPings: sendPings,
+            Fields.receivePings: receivePings,
+            Fields.lastUpdated: Timestamp(date: lastUpdated)
         ]
 
         // Add optional fields if they exist
         if let nickname = nickname {
-            data[ContactReferenceFields.nickname] = nickname
+            data[Fields.nickname] = nickname
         }
 
         if let notes = notes {
-            data[ContactReferenceFields.notes] = notes
+            data[Fields.notes] = notes
+        }
+
+        // Add user data properties
+        data[Fields.name] = name
+        data[Fields.phone] = phone
+        data[Fields.note] = note
+
+        if let qrCodeId = qrCodeId {
+            data[Fields.qrCodeId] = qrCodeId
+        }
+
+        data[Fields.addedAt] = Timestamp(date: addedAt)
+
+        if let lastCheckIn = lastCheckIn {
+            data[Fields.lastCheckIn] = Timestamp(date: lastCheckIn)
+        }
+
+        if let interval = interval {
+            data[Fields.interval] = interval
+        }
+
+        // Add alert and ping properties
+        data[Fields.manualAlertActive] = manualAlertActive
+
+        if let manualAlertTimestamp = manualAlertTimestamp {
+            data[Fields.manualAlertTimestamp] = Timestamp(date: manualAlertTimestamp)
+        }
+
+        data[Fields.hasIncomingPing] = hasIncomingPing
+        data[Fields.hasOutgoingPing] = hasOutgoingPing
+
+        if let incomingPingTimestamp = incomingPingTimestamp {
+            data[Fields.incomingPingTimestamp] = Timestamp(date: incomingPingTimestamp)
+        }
+
+        if let outgoingPingTimestamp = outgoingPingTimestamp {
+            data[Fields.outgoingPingTimestamp] = Timestamp(date: outgoingPingTimestamp)
         }
 
         return data
@@ -251,9 +333,9 @@ struct ContactReference: Identifiable, Codable {
     /// - Parameter data: Dictionary containing contact reference data from Firestore
     /// - Returns: A new ContactReference instance, or nil if required data is missing
     static func fromFirestore(_ data: [String: Any]) -> ContactReference? {
-        guard let referencePath = data[ContactReferenceFields.referencePath] as? String,
-              let isResponder = data[ContactReferenceFields.isResponder] as? Bool,
-              let isDependent = data[ContactReferenceFields.isDependent] as? Bool else {
+        guard let referencePath = data[Fields.referencePath] as? String,
+              let isResponder = data[Fields.isResponder] as? Bool,
+              let isDependent = data[Fields.isDependent] as? Bool else {
             return nil
         }
 
@@ -264,18 +346,66 @@ struct ContactReference: Identifiable, Codable {
         }
 
         let userId = components[1]
-        var contactRef = ContactReference(userId: userId, isResponder: isResponder, isDependent: isDependent)
 
-        // Set optional properties if available
-        contactRef.sendPings = data[ContactReferenceFields.sendPings] as? Bool ?? true
-        contactRef.receivePings = data[ContactReferenceFields.receivePings] as? Bool ?? true
-        contactRef.notifyOnCheckIn = data[ContactReferenceFields.notifyOnCheckIn] as? Bool ?? true
-        contactRef.notifyOnExpiry = data[ContactReferenceFields.notifyOnExpiry] as? Bool ?? true
-        contactRef.nickname = data[ContactReferenceFields.nickname] as? String
-        contactRef.notes = data[ContactReferenceFields.notes] as? String
+        // Get optional properties
+        let sendPings = data[Fields.sendPings] as? Bool ?? true
+        let receivePings = data[Fields.receivePings] as? Bool ?? true
+        let name = data[Fields.name] as? String ?? "Unknown User"
+        let phone = data[Fields.phone] as? String ?? ""
+        let note = data[Fields.note] as? String ?? ""
+        let qrCodeId = data[Fields.qrCodeId] as? String
 
-        if let lastUpdated = data[ContactReferenceFields.lastUpdated] as? Timestamp {
+        // Create contact with the consolidated initializer
+        var contactRef = ContactReference(
+            userId: userId,
+            isResponder: isResponder,
+            isDependent: isDependent,
+            name: name,
+            phone: phone,
+            note: note,
+            qrCodeId: qrCodeId,
+            sendPings: sendPings,
+            receivePings: receivePings
+        )
+
+        // Set additional properties
+        contactRef.nickname = data[Fields.nickname] as? String
+        contactRef.notes = data[Fields.notes] as? String
+
+        if let lastUpdated = data[Fields.lastUpdated] as? Timestamp {
             contactRef.lastUpdated = lastUpdated.dateValue()
+        }
+
+        // Additional user data properties already set in initializer
+
+        if let addedAt = data[Fields.addedAt] as? Timestamp {
+            contactRef.addedAt = addedAt.dateValue()
+        }
+
+        if let lastCheckIn = data[Fields.lastCheckIn] as? Timestamp {
+            contactRef.lastCheckIn = lastCheckIn.dateValue()
+        }
+
+        if let interval = data[Fields.interval] as? TimeInterval {
+            contactRef.interval = interval
+        }
+
+        // Set alert and ping properties if available
+        contactRef.manualAlertActive = data[Fields.manualAlertActive] as? Bool ?? false
+
+        if let manualAlertTimestamp = data[Fields.manualAlertTimestamp] as? Timestamp {
+            contactRef.manualAlertTimestamp = manualAlertTimestamp.dateValue()
+        }
+
+        contactRef.hasIncomingPing = data[Fields.hasIncomingPing] as? Bool ?? false
+        contactRef.hasOutgoingPing = data[Fields.hasOutgoingPing] as? Bool ?? false
+
+        if let incomingPingTimestamp = data[Fields.incomingPingTimestamp] as? Timestamp {
+            contactRef.incomingPingTimestamp = incomingPingTimestamp.dateValue()
+        }
+
+        if let outgoingPingTimestamp = data[Fields.outgoingPingTimestamp] as? Timestamp {
+            contactRef.outgoingPingTimestamp = outgoingPingTimestamp.dateValue()
         }
 
         return contactRef
