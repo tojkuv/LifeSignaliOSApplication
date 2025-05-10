@@ -1,13 +1,13 @@
 import SwiftUI
-import Foundation
-import AVFoundation
-import UIKit
+import ComposableArchitecture
 
+/// A SwiftUI view for displaying dependents using TCA
 struct DependentsView: View {
-    @EnvironmentObject private var contactsViewModel: ContactsViewModel
+    /// The store for the contacts feature
+    let store: StoreOf<ContactsFeature>
+
+    /// State for UI controls
     @State private var showQRScanner = false
-    @State private var showCameraDeniedAlert = false
-    @State private var newContact: ContactReference? = nil
     @State private var pendingScannedCode: String? = nil
     @State private var showContactAddedAlert = false
     @State private var showContactExistsAlert = false
@@ -15,20 +15,97 @@ struct DependentsView: View {
     @State private var contactErrorMessage = ""
     @State private var refreshID = UUID() // Used to force refresh the view
 
-    enum SortMode: String, CaseIterable, Identifiable {
-        // Order matters for UI presentation
-        case countdown = "Time Left"
-        case recentlyAdded = "Recently Added"
-        case alphabetical = "Alphabetical"
-        var id: String { self.rawValue }
+    var body: some View {
+        WithViewStore(store, observe: { $0 }) { viewStore in
+            VStack {
+                if viewStore.isLoading {
+                    // Show loading indicator
+                    VStack {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle())
+                        Text("Loading dependents...")
+                            .foregroundColor(.secondary)
+                            .padding(.top, 8)
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 12) {
+                            if viewStore.dependents.isEmpty {
+                                Text("No dependents yet")
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                    .padding(.top, 40)
+                            } else {
+                                // Use the sorted dependents
+                                ForEach(sortedDependents(viewStore.dependents)) { dependent in
+                                    DependentCard(
+                                        contact: dependent,
+                                        store: store
+                                    )
+                                }
+                            }
+                        }
+                        .padding()
+                        .padding(.bottom, 30)
+                    }
+                    .background(Color(.systemBackground))
+                }
+            }
+            .navigationTitle("Dependents")
+            .toolbar {
+                // Add button
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: {
+                        showQRScanner = true
+                    }) {
+                        Image(systemName: "qrcode.viewfinder")
+                            .foregroundColor(.blue)
+                    }
+                }
+            }
+            .sheet(isPresented: $showQRScanner, onDismiss: {
+                if let code = pendingScannedCode {
+                    // Look up the user by QR code
+                    viewStore.send(.lookupUserByQRCode(code))
+                    pendingScannedCode = nil
+                }
+            }) {
+                QRScannerView(
+                    store: Store(initialState: QRScannerFeature.State()) {
+                        QRScannerFeature()
+                    },
+                    onScanned: { result in
+                        pendingScannedCode = result
+                    }
+                )
+            }
+            .alert("Contact Added", isPresented: $showContactAddedAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("The contact has been added to your dependents.")
+            }
+            .alert("Contact Already Exists", isPresented: $showContactExistsAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("This contact is already in your contacts list.")
+            }
+            .alert("Error Adding Contact", isPresented: $showContactErrorAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(contactErrorMessage)
+            }
+            .onAppear {
+                viewStore.send(.loadContacts)
+            }
+        }
     }
-    @State private var sortMode: SortMode = .countdown
 
-    /// Computed property to sort dependents based on the selected sort mode
-    private var sortedDependents: [ContactReference] {
-        // This will be recalculated when refreshID changes
-        let dependents = contactsViewModel.dependents
-
+    /// Sort dependents based on status (manual alert, non-responsive, pinged, responsive)
+    /// - Parameter dependents: The list of dependents to sort
+    /// - Returns: A sorted list of dependents
+    private func sortedDependents(_ dependents: [ContactReference]) -> [ContactReference] {
         // Partition into manual alert, non-responsive, pinged, and responsive
         let (manualAlert, rest1) = dependents.partitioned { $0.manualAlertActive }
         let (nonResponsive, rest2) = rest1.partitioned { $0.isNonResponsive }
@@ -39,274 +116,129 @@ struct DependentsView: View {
             ($0.manualAlertTimestamp ?? .distantPast) > ($1.manualAlertTimestamp ?? .distantPast)
         }
 
-        // Sort non-responsive contacts alphabetically
-        let sortedNonResponsive = nonResponsive.sorted { $0.name < $1.name }
+        // Sort non-responsive by most expired first
+        let sortedNonResponsive = nonResponsive.sorted {
+            ($0.checkInExpiration ?? .distantPast) < ($1.checkInExpiration ?? .distantPast)
+        }
 
-        // Sort pinged contacts by most recent outgoing ping timestamp
+        // Sort pinged by most recent ping timestamp
         let sortedPinged = pinged.sorted {
             ($0.outgoingPingTimestamp ?? .distantPast) > ($1.outgoingPingTimestamp ?? .distantPast)
         }
 
-        // Sort responsive contacts based on the selected sort mode
-        let sortedResponsive: [ContactReference]
-        switch sortMode {
-        case .recentlyAdded:
-            sortedResponsive = responsive.sorted { $0.addedAt > $1.addedAt }
+        // Sort responsive alphabetically
+        let sortedResponsive = responsive.sorted { $0.name < $1.name }
 
-        case .countdown:
-            // Sort by time remaining (shortest time first)
-            sortedResponsive = responsive.sorted {
-                // Handle nil lastCheckIn (should be at the top)
-                if $0.lastCheckIn == nil && $1.lastCheckIn == nil {
-                    return $0.name < $1.name // If both have nil, sort alphabetically
-                } else if $0.lastCheckIn == nil {
-                    return true // $0 comes first if it has nil lastCheckIn
-                } else if $1.lastCheckIn == nil {
-                    return false // $1 comes first if it has nil lastCheckIn
-                }
-
-                // Calculate time remaining for each contact
-                guard let lastCheckIn0 = $0.lastCheckIn, let interval0 = $0.interval,
-                      let lastCheckIn1 = $1.lastCheckIn, let interval1 = $1.interval else {
-                    return $0.name < $1.name // Fallback to alphabetical if missing data
-                }
-
-                let expirationTime0 = lastCheckIn0.addingTimeInterval(interval0)
-                let expirationTime1 = lastCheckIn1.addingTimeInterval(interval1)
-                let timeRemaining0 = expirationTime0.timeIntervalSince(Date())
-                let timeRemaining1 = expirationTime1.timeIntervalSince(Date())
-
-                return timeRemaining0 < timeRemaining1
-            }
-
-        case .alphabetical:
-            sortedResponsive = responsive.sorted { $0.name < $1.name }
-        }
-
-        // Combine all sorted groups with priority: manual alert > non-responsive > pinged > responsive
+        // Combine all sorted groups
         return sortedManualAlert + sortedNonResponsive + sortedPinged + sortedResponsive
+    }
+}
+
+/// A SwiftUI view for displaying a dependent card using TCA
+struct DependentCard: View {
+    /// The contact to display
+    let contact: ContactReference
+
+    /// The store for the contacts feature
+    let store: StoreOf<ContactsFeature>
+
+    /// State for UI controls
+    @State private var showContactDetails = false
+
+    var statusColor: Color {
+        if contact.manualAlertActive {
+            return .red
+        } else if contact.isNonResponsive {
+            return .yellow
+        } else if contact.hasOutgoingPing {
+            return .blue
+        } else {
+            return .secondary
+        }
+    }
+
+    var statusText: String {
+        if contact.manualAlertActive {
+            if let alertTime = contact.manualAlertTimestamp {
+                return "Alert sent \(TimeManager.shared.formatTimeAgo(alertTime))"
+            }
+            return "Alert active"
+        } else if contact.isNonResponsive {
+            if let expiration = contact.checkInExpiration {
+                return "Expired \(TimeManager.shared.formatTimeAgo(expiration))"
+            }
+            return "Check-in expired"
+        } else if contact.hasOutgoingPing {
+            if let pingTime = contact.outgoingPingTimestamp {
+                return "Pinged \(TimeManager.shared.formatTimeAgo(pingTime))"
+            }
+            return "Ping sent"
+        } else {
+            return contact.formattedTimeRemaining
+        }
     }
 
     var body: some View {
-        VStack {
-            if contactsViewModel.isLoadingContacts {
-                // Show loading indicator
-                VStack {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle())
-                    Text("Loading dependents...")
-                        .foregroundColor(.secondary)
-                        .padding(.top, 8)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = contactsViewModel.contactError {
-                // Show error view
-                VStack(spacing: 16) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 50))
-                        .foregroundColor(.red)
-
-                    Text("Error Loading Dependents")
-                        .font(.headline)
-
-                    Text(error.localizedDescription)
-                        .multilineTextAlignment(.center)
-                        .foregroundColor(.secondary)
-
-                    Button("Retry") {
-                        contactsViewModel.forceReloadContacts()
-                    }
-                    .padding()
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                    .cornerRadius(8)
-                }
-                .padding()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 12) {
-                        if contactsViewModel.dependents.isEmpty {
-                            Text("No dependents yet")
-                                .foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .padding(.top, 40)
-                        } else {
-                            ForEach(sortedDependents) { dependent in
-                                DependentCard(contact: dependent, refreshID: refreshID)
-                            }
-                        }
-                    }
-                    .padding()
-                    .padding(.bottom, 30)
-                }
-                .background(Color(.systemBackground))
-            }
-        }
-        .background(Color(.systemBackground))
-        .onAppear {
-            // Add observer for refresh notifications
-            NotificationCenter.default.addObserver(forName: NSNotification.Name("RefreshDependentsView"), object: nil, queue: .main) { _ in
-                refreshID = UUID()
-            }
-
-            // Force refresh when view appears to ensure sort is applied
-            refreshID = UUID()
-
-            // Only reload contacts if they haven't been loaded yet or if there was an error
-            if contactsViewModel.contacts.isEmpty || contactsViewModel.contactError != nil {
-                contactsViewModel.forceReloadContacts()
-            }
-        }
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Menu {
-                    ForEach(SortMode.allCases) { mode in
-                        Button(action: {
-                            sortMode = mode
-                            // Force refresh when sort mode changes
-                            refreshID = UUID()
-                            print("Sort mode changed to: \(mode.rawValue)")
-                        }) {
-                            Label(mode.rawValue, systemImage: sortMode == mode ? "checkmark" : "")
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.up.arrow.down")
-                        Text(sortMode.rawValue)
-                            .font(.caption)
-                    }
-                }
-                .accessibilityLabel("Sort Dependents")
-            }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: {
-                    AVCaptureDevice.requestAccess(for: .video) { granted in
-                        if granted {
-                            DispatchQueue.main.async {
-                                showQRScanner = true
-                            }
-                        } else {
-                            DispatchQueue.main.async {
-                                showCameraDeniedAlert = true
-                            }
-                        }
-                    }
-                }) {
-                    Image(systemName: "qrcode.viewfinder")
-                }
-            }
-        }
-        .sheet(isPresented: $showQRScanner, onDismiss: {
-            if let code = pendingScannedCode {
-                // Look up the user by QR code
-                contactsViewModel.lookupUserByQRCode(code) { userData, error in
-                    if let error = error {
-                        print("Error looking up user by QR code: \(error.localizedDescription)")
-                        return
-                    }
-
-                    guard let userData = userData else {
-                        print("No user found with QR code: \(code)")
-                        return
-                    }
-
-                    // Create a new contact with the user data
-                    DispatchQueue.main.async {
-                        self.newContact = ContactReference.createDefault(
-                            name: userData[User.Fields.name] as? String ?? "Unknown Name",
-                            phone: userData[User.Fields.phoneNumber] as? String ?? "",
-                            note: userData[User.Fields.note] as? String ?? "",
-                            qrCodeId: code,
-                            isResponder: false,
-                            isDependent: true
-                        )
-                    }
-                }
-                pendingScannedCode = nil
-            }
-        }) {
-            QRScannerView { result in
-                pendingScannedCode = result
-            }
-        }
-        .sheet(item: $newContact, onDismiss: {
-            newContact = nil
-        }) { contact in
-            AddContactSheet(
+        WithViewStore(store, observe: { $0 }) { viewStore in
+            ContactCardView(
                 contact: contact,
-                onAdd: { confirmedContact in
-                    // Use the QR code to add the contact via Firebase
-                    if let qrCodeId = confirmedContact.qrCodeId {
-                        contactsViewModel.addContact(
-                            qrCodeId: qrCodeId,
-                            isResponder: confirmedContact.isResponder,
-                            isDependent: confirmedContact.isDependent
-                        ) { success, error in
-                            if success {
-                                if let error = error as NSError?,
-                                   error.domain == "ContactsViewModel",
-                                   error.code == 400,
-                                   error.localizedDescription.contains("already exists") {
-                                    // Contact already exists - show appropriate alert
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                        showContactExistsAlert = true
-                                    }
-                                } else {
-                                    // Contact was added successfully
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                        showContactAddedAlert = true
-                                    }
-                                }
-                            } else if let error = error {
-                                print("Error adding contact: \(error.localizedDescription)")
-                                // Show error alert to the user
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    contactErrorMessage = error.localizedDescription
-                                    showContactErrorAlert = true
-                                }
-                            }
+                statusColor: statusColor,
+                statusText: statusText,
+                context: .dependent,
+                trailingContent: {
+                    if !contact.hasOutgoingPing {
+                        Button(action: {
+                            viewStore.send(.pingDependent(id: contact.id))
+                        }) {
+                            Circle()
+                                .fill(Color(UIColor.systemBackground))
+                                .frame(width: 40, height: 40)
+                                .overlay(
+                                    Image(systemName: "bell")
+                                        .foregroundColor(.blue)
+                                        .font(.system(size: 18))
+                                )
                         }
+                        .buttonStyle(PlainButtonStyle())
+                        .accessibilityLabel("Ping \(contact.name)")
+                    } else {
+                        Button(action: {
+                            viewStore.send(.clearPing(id: contact.id))
+                        }) {
+                            Circle()
+                                .fill(Color(UIColor.systemBackground))
+                                .frame(width: 40, height: 40)
+                                .overlay(
+                                    Image(systemName: "bell.fill")
+                                        .foregroundColor(.blue)
+                                        .font(.system(size: 18))
+                                )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .accessibilityLabel("Clear ping for \(contact.name)")
                     }
                 },
-                onClose: { newContact = nil }
+                onTap: {
+                    showContactDetails = true
+                }
             )
-        }
-        .alert(isPresented: $showCameraDeniedAlert) {
-            Alert(
-                title: Text("Camera Access Denied"),
-                message: Text("Please enable camera access in Settings to scan QR codes."),
-                dismissButton: .default(Text("OK"))
-            )
-        }
-        .alert(isPresented: $showContactAddedAlert) {
-            Alert(
-                title: Text("Contact Added"),
-                message: Text("The contact was successfully added."),
-                dismissButton: .default(Text("OK"))
-            )
-        }
-        .alert(isPresented: $showContactExistsAlert) {
-            Alert(
-                title: Text("Contact Already Exists"),
-                message: Text("This user is already in your contacts list."),
-                dismissButton: .default(Text("OK"))
-            )
-        }
-        .alert(isPresented: $showContactErrorAlert) {
-            Alert(
-                title: Text("Error Adding Contact"),
-                message: Text(contactErrorMessage),
-                dismissButton: .default(Text("OK"))
-            )
+            .sheet(isPresented: $showContactDetails) {
+                ContactDetailsSheet(
+                    contact: contact,
+                    store: store,
+                    isPresented: $showContactDetails
+                )
+            }
         }
     }
 }
 
-// Wrapper struct to make String identifiable
-
 #Preview {
-    DependentsView()
-        .environmentObject(ContactsViewModel())
+    NavigationStack {
+        DependentsView(
+            store: Store(initialState: ContactsFeature.State()) {
+                ContactsFeature()
+            }
+        )
+    }
 }

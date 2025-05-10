@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		9843B1A32DCEF23E0020A050 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9843B19F2DCEF20C0020A050 /* XCTest.framework */; platformFilter = ios; };
+		9843B1A42DCEF2450020A050 /* Testing.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9843B1A12DCEF21B0020A050 /* Testing.framework */; platformFilter = ios; };
+		9843B4302DCEFFC30020A050 /* ComposableArchitecture in Frameworks */ = {isa = PBXBuildFile; productRef = 988BA9752DCC5E3B00024FD8 /* ComposableArchitecture */; };
 		988BA9752DCC5E3A00024FD8 /* FirebaseAppCheck in Frameworks */ = {isa = PBXBuildFile; productRef = 988BA9742DCC5E3A00024FD8 /* FirebaseAppCheck */; };
 		988BA9772DCC5E3A00024FD8 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 988BA9762DCC5E3A00024FD8 /* FirebaseAuth */; };
 		988BA9792DCC5E3A00024FD8 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 988BA9782DCC5E3A00024FD8 /* FirebaseCore */; };
@@ -33,6 +36,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		9843B19F2DCEF20C0020A050 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = Platforms/iPhoneOS.platform/Developer/Library/Frameworks/XCTest.framework; sourceTree = DEVELOPER_DIR; };
+		9843B1A12DCEF21B0020A050 /* Testing.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Testing.framework; path = Platforms/iPhoneOS.platform/Developer/Library/Frameworks/Testing.framework; sourceTree = DEVELOPER_DIR; };
 		988BA1A52DCB131200024FD8 /* LifeSignal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LifeSignal.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		988BA1B32DCB131400024FD8 /* LifeSignalTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LifeSignalTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		988BA1BD2DCB131400024FD8 /* LifeSignalUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LifeSignalUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -74,6 +79,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9843B4302DCEFFC30020A050 /* ComposableArchitecture in Frameworks */,
 				988BA9752DCC5E3A00024FD8 /* FirebaseAppCheck in Frameworks */,
 				988BA97B2DCC5E3A00024FD8 /* FirebaseFirestore in Frameworks */,
 				98A78FA72DCD665500964DEC /* FirebaseMessaging in Frameworks */,
@@ -87,6 +93,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9843B1A42DCEF2450020A050 /* Testing.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -94,18 +101,29 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9843B1A32DCEF23E0020A050 /* XCTest.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		9843B19E2DCEF20C0020A050 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				9843B1A12DCEF21B0020A050 /* Testing.framework */,
+				9843B19F2DCEF20C0020A050 /* XCTest.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		988BA10A2DCB11F500024FD8 = {
 			isa = PBXGroup;
 			children = (
 				988BA1A62DCB131200024FD8 /* LifeSignal */,
 				988BA1B62DCB131400024FD8 /* LifeSignalTests */,
 				988BA1C02DCB131400024FD8 /* LifeSignalUITests */,
+				9843B19E2DCEF20C0020A050 /* Frameworks */,
 				988BA1142DCB11F500024FD8 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -146,6 +164,7 @@
 				988BA97A2DCC5E3A00024FD8 /* FirebaseFirestore */,
 				98A78FA62DCD665500964DEC /* FirebaseMessaging */,
 				98A78FAA2DCD709600964DEC /* FirebaseFunctions */,
+				988BA9752DCC5E3B00024FD8 /* ComposableArchitecture */,
 			);
 			productName = LifeSignal;
 			productReference = 988BA1A52DCB131200024FD8 /* LifeSignal.app */;
@@ -231,6 +250,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				988BA9732DCC5E3A00024FD8 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				988BA9742DCC5E3B00024FD8 /* XCRemoteSwiftPackageReference "swift-composable-architecture" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 988BA1142DCB11F500024FD8 /* Products */;
@@ -449,7 +469,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -481,7 +501,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
 			};
@@ -501,7 +521,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/LifeSignal.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/LifeSignal";
 			};
@@ -521,7 +541,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/LifeSignal.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/LifeSignal";
 				VALIDATE_PRODUCT = YES;
@@ -541,7 +561,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = LifeSignal;
 			};
@@ -560,7 +580,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = LifeSignal;
 				VALIDATE_PRODUCT = YES;
@@ -617,6 +637,14 @@
 				minimumVersion = 11.12.0;
 			};
 		};
+		988BA9742DCC5E3B00024FD8 /* XCRemoteSwiftPackageReference "swift-composable-architecture" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/pointfreeco/swift-composable-architecture";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.9.2;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -624,6 +652,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 988BA9732DCC5E3A00024FD8 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseAppCheck;
+		};
+		988BA9752DCC5E3B00024FD8 /* ComposableArchitecture */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 988BA9742DCC5E3B00024FD8 /* XCRemoteSwiftPackageReference "swift-composable-architecture" */;
+			productName = ComposableArchitecture;
 		};
 		988BA9762DCC5E3A00024FD8 /* FirebaseAuth */ = {
 			isa = XCSwiftPackageProductDependency;

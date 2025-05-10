@@ -319,7 +319,7 @@ class NotificationService {
             ]
         )
 
-        // Update the UserProfileViewModel to refresh the dependents list
+        // Post notification to refresh the dependents view
         NotificationCenter.default.post(name: NSNotification.Name("RefreshDependentsView"), object: nil)
     }
 
@@ -347,7 +347,7 @@ class NotificationService {
             ]
         )
 
-        // Update the UserProfileViewModel to refresh the dependents list
+        // Post notification to refresh the dependents view
         NotificationCenter.default.post(name: NSNotification.Name("RefreshDependentsView"), object: nil)
     }
 }

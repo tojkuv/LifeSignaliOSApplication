@@ -252,18 +252,14 @@ class SessionManager {
         completion?(success)
     }
 
-    /// Sign out and reset app state using environment objects
-    /// - Parameters:
-    ///   - isAuthenticated: Binding to authentication state
-    ///   - needsOnboarding: Binding to onboarding state
-    func signOutAndResetAppState(isAuthenticated: Binding<Bool>, needsOnboarding: Binding<Bool>) {
+    /// Sign out and reset app state
+    /// - Parameter completion: Optional callback with success flag
+    func signOutAndResetAppState(completion: ((Bool) -> Void)? = nil) {
         signOut { success in
             if success {
-                // Update app state on main thread
-                DispatchQueue.main.async {
-                    isAuthenticated.wrappedValue = false
-                    needsOnboarding.wrappedValue = false
-                }
+                completion?(true)
+            } else {
+                completion?(false)
             }
         }
     }

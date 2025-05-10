@@ -1,194 +1,154 @@
 import SwiftUI
-import Foundation
+import ComposableArchitecture
+import LifeSignal.Features.CheckIn
 
+/// A SwiftUI view for displaying the check-in countdown using TCA
 struct CountdownView: View {
-    @EnvironmentObject private var checkInViewModel: CheckInViewModel
+    /// The store for the check-in feature
+    let store: StoreOf<CheckInFeature>
+
+    /// State for UI controls
     @State private var showCheckInConfirmation = false
     @State private var showIntervalPicker = false
     @State private var showNotificationSettings = false
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                // Countdown timer
-                ZStack {
-                    Circle()
-                        .stroke(lineWidth: 15)
-                        .opacity(0.3)
-                        .foregroundColor(.blue)
+        WithViewStore(store, observe: { $0 }) { viewStore in
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Countdown timer
+                    ZStack {
+                        Circle()
+                            .stroke(lineWidth: 15)
+                            .opacity(0.3)
+                            .foregroundColor(.blue)
 
-                    Circle()
-                        .trim(from: 0.0, to: 1.0 - checkInViewModel.checkInProgress)
-                        .stroke(style: StrokeStyle(lineWidth: 15, lineCap: .round, lineJoin: .round))
-                        .foregroundColor(.blue)
-                        .rotationEffect(Angle(degrees: 270.0))
-                        .animation(.linear, value: checkInViewModel.checkInProgress)
+                        Circle()
+                            .trim(from: 0.0, to: 1.0 - viewStore.checkInProgress)
+                            .stroke(style: StrokeStyle(lineWidth: 15, lineCap: .round, lineJoin: .round))
+                            .foregroundColor(.blue)
+                            .rotationEffect(Angle(degrees: 270.0))
+                            .animation(.linear, value: viewStore.checkInProgress)
 
-                    VStack {
-                        Text("Time Remaining")
-                            .font(.headline)
-                            .foregroundColor(.secondary)
+                        VStack {
+                            Text(viewStore.formattedTimeRemaining)
+                                .font(.system(size: 36, weight: .bold))
+                                .foregroundColor(.primary)
 
-                        Text(checkInViewModel.formattedTimeRemaining)
-                            .font(.system(size: 36, weight: .bold, design: .rounded))
-                            .foregroundColor(.primary)
-                            .padding(.top, 4)
+                            Text("until check-in")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .frame(width: 250, height: 250)
+                    .padding(.top, 20)
 
-                        Text("Expires at")
+                    // Last checked in
+                    VStack(spacing: 5) {
+                        Text("Last checked in")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
-                            .padding(.top, 4)
 
-                        Text(checkInViewModel.checkInExpiration, style: .time)
+                        Text(viewStore.lastCheckedIn.formatted(date: .abbreviated, time: .shortened))
                             .font(.headline)
-                            .foregroundColor(.primary)
                     }
-                }
-                .frame(width: 250, height: 250)
-                .padding(.top, 20)
+                    .padding(.top, 10)
 
-                // Check-in button
-                Button(action: {
-                    showCheckInConfirmation = true
-                }) {
-                    Text("Check In Now")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(Color.blue)
-                        .cornerRadius(10)
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 10)
-
-                // Interval settings
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Check-In Interval")
-                        .font(.headline)
-
-                    HStack {
-                        Text("Current interval: \(TimeManager.shared.formatTimeInterval(checkInViewModel.checkInInterval))")
+                    // Check-in interval
+                    VStack(spacing: 5) {
+                        Text("Check-in interval")
+                            .font(.subheadline)
                             .foregroundColor(.secondary)
 
-                        Spacer()
-
-                        Button(action: {
-                            showIntervalPicker = true
-                        }) {
-                            Text("Change")
-                                .foregroundColor(.blue)
-                        }
+                        Text(formatInterval(viewStore.checkInInterval))
+                            .font(.headline)
                     }
+                    .padding(.top, 5)
+                    .onTapGesture {
+                        showIntervalPicker = true
+                    }
+
+                    // Notification settings
+                    VStack(spacing: 5) {
+                        Text("Notification lead time")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+
+                        Text("\(viewStore.notificationLeadTime) minutes")
+                            .font(.headline)
+                    }
+                    .padding(.top, 5)
+                    .onTapGesture {
+                        showNotificationSettings = true
+                    }
+
+                    // Check-in button
+                    Button(action: {
+                        showCheckInConfirmation = true
+                    }) {
+                        Text("Check In Now")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.blue)
+                            .cornerRadius(10)
+                    }
+                    .padding(.top, 20)
+                    .padding(.horizontal, 20)
+
+                    Spacer()
                 }
                 .padding()
-                .background(Color(.secondarySystemBackground))
-                .cornerRadius(10)
-                .padding(.horizontal, 20)
-
-                // Notification settings
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Notification Settings")
-                        .font(.headline)
-
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text("30 min before: \(checkInViewModel.notify30MinBefore ? "On" : "Off")")
-                                .foregroundColor(.secondary)
-
-                            Text("2 hours before: \(checkInViewModel.notify2HoursBefore ? "On" : "Off")")
-                                .foregroundColor(.secondary)
-                        }
-
-                        Spacer()
-
-                        Button(action: {
-                            showNotificationSettings = true
-                        }) {
-                            Text("Change")
-                                .foregroundColor(.blue)
-                        }
-                    }
-                }
-                .padding()
-                .background(Color(.secondarySystemBackground))
-                .cornerRadius(10)
-                .padding(.horizontal, 20)
-
-                Spacer()
             }
-            .padding(.bottom, 30)
-        }
-        .alert(isPresented: $showCheckInConfirmation) {
-            Alert(
-                title: Text("Confirm Check-in"),
-                message: Text("Are you sure you want to check in now? This will reset your timer."),
-                primaryButton: .default(Text("Check In")) {
-                    checkInViewModel.updateLastCheckedIn()
-                },
-                secondaryButton: .cancel()
-            )
-        }
-        .sheet(isPresented: $showIntervalPicker) {
-            IntervalPickerView(
-                interval: checkInViewModel.checkInInterval,
-                onSave: { newInterval, completion in
-                    checkInViewModel.updateCheckInInterval(newInterval)
-                    completion(true, nil)
-                }
-            )
-        }
-        .sheet(isPresented: $showNotificationSettings) {
-            NotificationSettingsView(
-                notify30MinBefore: checkInViewModel.notify30MinBefore,
-                notify2HoursBefore: checkInViewModel.notify2HoursBefore,
-                onSave: { notify30Min, notify2Hours in
-                    checkInViewModel.updateNotificationPreferences(
-                        notify30MinBefore: notify30Min,
-                        notify2HoursBefore: notify2Hours
-                    )
-                }
-            )
-        }
-    }
-}
-
-struct NotificationSettingsView: View {
-    @Environment(\.presentationMode) var presentationMode
-    @State private var notify30MinBefore: Bool
-    @State private var notify2HoursBefore: Bool
-    let onSave: (Bool, Bool) -> Void
-
-    init(notify30MinBefore: Bool, notify2HoursBefore: Bool, onSave: @escaping (Bool, Bool) -> Void) {
-        self._notify30MinBefore = State(initialValue: notify30MinBefore)
-        self._notify2HoursBefore = State(initialValue: notify2HoursBefore)
-        self.onSave = onSave
-    }
-
-    var body: some View {
-        NavigationView {
-            Form {
-                Section(header: Text("Reminder Settings")) {
-                    Toggle("30 minutes before expiration", isOn: $notify30MinBefore)
-                    Toggle("2 hours before expiration", isOn: $notify2HoursBefore)
-                }
-
-                Section {
-                    Button("Save Changes") {
-                        onSave(notify30MinBefore, notify2HoursBefore)
-                        presentationMode.wrappedValue.dismiss()
-                    }
-                }
+            .navigationTitle("Check In")
+            .alert(isPresented: $showCheckInConfirmation) {
+                Alert(
+                    title: Text("Confirm Check-in"),
+                    message: Text("Are you sure you want to check in now? This will reset your timer."),
+                    primaryButton: .default(Text("Check In")) {
+                        viewStore.send(.checkIn)
+                    },
+                    secondaryButton: .cancel()
+                )
             }
-            .navigationTitle("Notification Settings")
-            .navigationBarItems(trailing: Button("Cancel") {
-                presentationMode.wrappedValue.dismiss()
-            })
+            .sheet(isPresented: $showIntervalPicker) {
+                IntervalPickerView(
+                    store: store,
+                    isPresented: $showIntervalPicker
+                )
+            }
+            .sheet(isPresented: $showNotificationSettings) {
+                NotificationSettingsView(
+                    store: store,
+                    isPresented: $showNotificationSettings
+                )
+            }
+            .onAppear {
+                viewStore.send(.loadCheckInData)
+
+                // Set up a timer to update the UI
+                let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+                Timer.publish(every: 1, on: .main, in: .common)
+                    .autoconnect()
+                    .sink { _ in
+                        viewStore.send(.timerTick)
+                    }
+            }
         }
     }
-}
 
-#Preview {
-    CountdownView()
-        .environmentObject(CheckInViewModel())
+    /// Format the check-in interval for display
+    /// - Parameter interval: The interval in seconds
+    /// - Returns: A formatted string representation of the interval
+    private func formatInterval(_ interval: TimeInterval) -> String {
+        if interval.truncatingRemainder(dividingBy: 86400) == 0 {
+            let days = Int(interval / 86400)
+            return "\(days) \(days == 1 ? "day" : "days")"
+        } else {
+            let hours = Int(interval / 3600)
+            return "\(hours) \(hours == 1 ? "hour" : "hours")"
+        }
+    }
 }
