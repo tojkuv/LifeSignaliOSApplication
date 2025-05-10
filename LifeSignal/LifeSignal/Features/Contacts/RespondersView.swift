@@ -117,7 +117,7 @@ struct RespondersView: View {
     /// Sort responders with pending pings first, then alphabetically
     /// - Parameter responders: The list of responders to sort
     /// - Returns: A sorted list of responders
-    private func sortedResponders(_ responders: [ContactReference]) -> [ContactReference] {
+    private func sortedResponders(_ responders: [Contact]) -> [Contact] {
         // Partition into pending pings and others
         let (pendingPings, others) = responders.partitioned { $0.hasIncomingPing }
 
@@ -137,7 +137,7 @@ struct RespondersView: View {
 /// A SwiftUI view for displaying a responder card using TCA
 struct ResponderCard: View {
     /// The contact to display
-    let contact: ContactReference
+    let contact: Contact
 
     /// The store for the contacts feature
     let store: StoreOf<ContactsFeature>

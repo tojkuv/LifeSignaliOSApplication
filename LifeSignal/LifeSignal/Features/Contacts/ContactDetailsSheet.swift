@@ -4,32 +4,32 @@ import ComposableArchitecture
 /// A SwiftUI view for displaying contact details using TCA
 struct ContactDetailsSheet: View {
     /// The contact to display
-    let contact: ContactReference
-    
+    let contact: Contact
+
     /// The store for the contacts feature
     let store: StoreOf<ContactsFeature>
-    
+
     /// Binding to control the presentation of the sheet
     @Binding var isPresented: Bool
-    
+
     /// State for the contact roles
     @State private var isResponder: Bool
     @State private var isDependent: Bool
     @State private var showDeleteConfirmation = false
-    
+
     /// Initialize the view
     /// - Parameters:
     ///   - contact: The contact to display
     ///   - store: The store for the contacts feature
     ///   - isPresented: Binding to control the presentation of the sheet
-    init(contact: ContactReference, store: StoreOf<ContactsFeature>, isPresented: Binding<Bool>) {
+    init(contact: Contact, store: StoreOf<ContactsFeature>, isPresented: Binding<Bool>) {
         self.contact = contact
         self.store = store
         self._isPresented = isPresented
         self._isResponder = State(initialValue: contact.isResponder)
         self._isDependent = State(initialValue: contact.isDependent)
     }
-    
+
     var body: some View {
         WithViewStore(store, observe: { $0 }) { viewStore in
             NavigationStack {
@@ -41,14 +41,14 @@ struct ContactDetailsSheet: View {
                             Text(contact.name)
                                 .foregroundColor(.secondary)
                         }
-                        
+
                         HStack {
                             Text("Phone")
                             Spacer()
-                            Text(contact.phoneNumber)
+                            Text(contact.phone)
                                 .foregroundColor(.secondary)
                         }
-                        
+
                         if !contact.note.isEmpty {
                             HStack {
                                 Text("Note")
@@ -59,19 +59,19 @@ struct ContactDetailsSheet: View {
                             }
                         }
                     }
-                    
+
                     Section(header: Text("Relationship")) {
                         Toggle("This person can respond to my alerts", isOn: $isResponder)
                             .onChange(of: isResponder) { oldValue, newValue in
                                 viewStore.send(.updateContactRoles(id: contact.id, isResponder: newValue, isDependent: isDependent))
                             }
-                        
+
                         Toggle("I can check on this person", isOn: $isDependent)
                             .onChange(of: isDependent) { oldValue, newValue in
                                 viewStore.send(.updateContactRoles(id: contact.id, isResponder: isResponder, isDependent: newValue))
                             }
                     }
-                    
+
                     Section {
                         Button(action: {
                             showDeleteConfirmation = true
@@ -84,7 +84,7 @@ struct ContactDetailsSheet: View {
                             }
                         }
                     }
-                    
+
                     if viewStore.isLoading {
                         Section {
                             HStack {
@@ -116,10 +116,8 @@ struct ContactDetailsSheet: View {
 
 #Preview {
     ContactDetailsSheet(
-        contact: ContactReference.createDefault(
+        contact: Contact.createDefault(
             name: "John Doe",
-            phone: "+1 (555) 123-4567",
-            note: "Emergency contact",
             isResponder: true,
             isDependent: false
         ),

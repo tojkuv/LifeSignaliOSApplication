@@ -41,11 +41,14 @@ struct AvatarView: View {
     }
 }
 
-#Preview(traits: .sizeThatFitsLayout) {
-    VStack(spacing: 20) {
-        AvatarView(name: "John Doe", size: 100, strokeWidth: 2)
-        AvatarView(name: "Jane Smith", size: 60, color: .red, strokeWidth: 1)
-        AvatarView(name: "Alex Johnson", size: 40, color: .green)
+struct AvatarView_Previews: PreviewProvider {
+    static var previews: some View {
+        VStack(spacing: 20) {
+            AvatarView(name: "John Doe", size: 100, strokeWidth: 2)
+            AvatarView(name: "Jane Smith", size: 60, color: .red, strokeWidth: 1)
+            AvatarView(name: "Alex Johnson", size: 40, color: .green)
+        }
+        .padding()
+        .previewLayout(.sizeThatFits)
     }
-    .padding()
 }

@@ -6,7 +6,7 @@ import FirebaseAuth
 /// Client for interacting with profile functionality
 struct ProfileClient {
     /// Load profile data from Firestore
-    var loadProfile: () async throws -> ProfileData
+    var loadProfile: () async throws -> (name: String, phoneNumber: String, phoneRegion: String, note: String, qrCodeId: String, notificationEnabled: Bool, profileComplete: Bool)
 
     /// Update profile data in Firestore
     var updateProfile: (name: String, note: String) async throws -> Bool
@@ -15,7 +15,7 @@ struct ProfileClient {
     var updateNotificationSettings: (enabled: Bool) async throws -> Bool
 
     /// Load settings from Firestore
-    var loadSettings: () async throws -> SettingsData
+    var loadSettings: () async throws -> Bool
 
     /// Sign out the current user
     var signOut: () async throws -> Bool
@@ -47,7 +47,7 @@ extension ProfileClient: DependencyKey {
                 let notificationEnabled = data[FirestoreConstants.UserFields.notificationEnabled] as? Bool ?? true
                 let profileComplete = data[FirestoreConstants.UserFields.profileComplete] as? Bool ?? false
 
-                return ProfileData(
+                return (
                     name: name,
                     phoneNumber: phoneNumber,
                     phoneRegion: phoneRegion,
@@ -110,7 +110,7 @@ extension ProfileClient: DependencyKey {
 
                 let notificationsEnabled = data[FirestoreConstants.UserFields.notificationEnabled] as? Bool ?? true
 
-                return SettingsData(notificationsEnabled: notificationsEnabled)
+                return notificationsEnabled
             },
 
             signOut: {
@@ -128,7 +128,7 @@ extension ProfileClient: DependencyKey {
     static var testValue: Self {
         return Self(
             loadProfile: {
-                return ProfileData(
+                return (
                     name: "Test User",
                     phoneNumber: "+15551234567",
                     phoneRegion: "US",
@@ -148,7 +148,7 @@ extension ProfileClient: DependencyKey {
             },
 
             loadSettings: {
-                return SettingsData(notificationsEnabled: true)
+                return true
             },
 
             signOut: {

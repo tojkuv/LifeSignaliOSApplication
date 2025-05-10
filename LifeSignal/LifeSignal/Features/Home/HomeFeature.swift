@@ -51,7 +51,7 @@ struct HomeFeature {
         var pendingScannedCode: String? = nil
 
         /// New contact from QR scan
-        var newContact: ContactReference? = nil
+        var newContact: Contact? = nil
 
         /// Loading state
         var isLoading: Bool = false
@@ -67,7 +67,8 @@ struct HomeFeature {
     enum Action: Equatable {
         /// Load user data
         case loadUserData
-        case loadUserDataResponse(TaskResult<UserData>)
+        case loadProfileResponse(TaskResult<ProfileData>)
+        case loadCheckInDataResponse(TaskResult<CheckInData>)
 
         /// Check-in actions
         case checkIn
@@ -89,8 +90,8 @@ struct HomeFeature {
 
         /// Contact actions
         case lookupContact(String)
-        case lookupContactResponse(TaskResult<ContactReference?>)
-        case addContact(ContactReference, isResponder: Bool, isDependent: Bool)
+        case lookupContactResponse(TaskResult<Contact?>)
+        case addContact(Contact, isResponder: Bool, isDependent: Bool)
         case addContactResponse(TaskResult<Bool>)
 
         /// UI state actions
@@ -145,31 +146,41 @@ struct HomeFeature {
             case .loadUserData:
                 state.isLoading = true
                 return .run { send in
-                    async let profileData = profileClient.loadProfile()
-                    async let checkInData = checkInClient.loadCheckInData()
-
+                    // Load profile data
                     do {
-                        let (profile, checkIn) = try await (profileData, checkInData)
-                        let userData = UserData(
-                            name: profile.name,
-                            qrCodeId: profile.qrCodeId,
-                            checkInInterval: checkIn.checkInInterval,
-                            notificationLeadTime: checkIn.notify2HoursBefore ? 120 : 30
-                        )
-                        await send(.loadUserDataResponse(.success(userData)))
+                        let profile = try await profileClient.loadProfile()
+                        await send(.loadProfileResponse(.success(profile)))
                     } catch {
-                        await send(.loadUserDataResponse(.failure(error)))
+                        await send(.loadProfileResponse(.failure(error)))
+                    }
+
+                    // Load check-in data
+                    do {
+                        let checkInData = try await checkInClient.loadCheckInData()
+                        await send(.loadCheckInDataResponse(.success(checkInData)))
+                    } catch {
+                        await send(.loadCheckInDataResponse(.failure(error)))
                     }
                 }
 
-            case let .loadUserDataResponse(result):
+            case let .loadProfileResponse(result):
+                switch result {
+                case let .success(profile):
+                    state.userName = profile.name
+                    state.qrCodeId = profile.qrCodeId
+                    return .none
+                case let .failure(error):
+                    state.error = error
+                    state.isLoading = false
+                    return .none
+                }
+
+            case let .loadCheckInDataResponse(result):
                 state.isLoading = false
                 switch result {
-                case let .success(userData):
-                    state.userName = userData.name
-                    state.qrCodeId = userData.qrCodeId
-                    state.checkInInterval = userData.checkInInterval
-                    state.notificationLeadTime = userData.notificationLeadTime
+                case let .success(checkInData):
+                    state.checkInInterval = checkInData.checkInInterval
+                    state.notificationLeadTime = checkInData.notify2HoursBefore ? 120 : 30
                     return .none
                 case let .failure(error):
                     state.error = error

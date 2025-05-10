@@ -6,10 +6,10 @@ import FirebaseFunctions
 /// Client for interacting with contacts functionality
 struct ContactsClient {
     /// Load contacts from Firestore
-    var loadContacts: () async throws -> [ContactReference]
+    var loadContacts: () async throws -> [Contact]
 
     /// Add a contact
-    var addContact: (ContactReference) async throws -> Bool
+    var addContact: (Contact) async throws -> Bool
 
     /// Update a contact's roles
     var updateContactRoles: (id: String, isResponder: Bool, isDependent: Bool) async throws -> Bool
@@ -30,7 +30,7 @@ struct ContactsClient {
     var respondToAllPings: () async throws -> Bool
 
     /// Look up a user by QR code
-    var lookupUserByQRCode: (String) async throws -> ContactReference?
+    var lookupUserByQRCode: (String) async throws -> Contact?
 }
 
 extension ContactsClient: DependencyKey {
@@ -41,50 +41,54 @@ extension ContactsClient: DependencyKey {
                 guard let userId = AuthenticationService.shared.getCurrentUserID() else {
                     throw NSError(domain: "ContactsClient", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
                 }
-                
+
                 let db = Firestore.firestore()
-                let userRef = db.collection(FirestoreCollections.users).document(userId)
-                
+                let userRef = db.collection(FirestoreConstants.Collections.users).document(userId)
+
                 // Get the user document to access contacts
                 let userDoc = try await userRef.getDocument()
                 guard let userData = userDoc.data() else {
                     throw NSError(domain: "ContactsClient", code: 404, userInfo: [NSLocalizedDescriptionKey: "User data not found"])
                 }
-                
+
                 // Extract contacts array
-                guard let contactsData = userData[User.Fields.contacts] as? [[String: Any]] else {
+                guard let contactsData = userData[FirestoreConstants.UserFields.contacts] as? [[String: Any]] else {
                     return []
                 }
-                
+
                 // Process each contact
-                var contacts: [ContactReference] = []
-                
+                var contacts: [Contact] = []
+
                 for contactData in contactsData {
-                    guard let contactId = contactData[Contact.Fields.id] as? String else { continue }
-                    
+                    // Extract the contact ID from the reference path
+                    guard let referencePath = contactData[FirestoreConstants.ContactFields.referencePath] as? String else { continue }
+                    let components = referencePath.components(separatedBy: "/")
+                    guard components.count == 2 && components[0] == "users" else { continue }
+                    let contactId = components[1]
+
                     // Get the contact's user document
-                    let contactRef = db.collection(FirestoreCollections.users).document(contactId)
+                    let contactRef = db.collection(FirestoreConstants.Collections.users).document(contactId)
                     let contactDoc = try await contactRef.getDocument()
-                    
+
                     guard let contactUserData = contactDoc.data() else { continue }
-                    
+
                     // Extract basic user info
-                    let name = contactUserData[User.Fields.name] as? String ?? "Unknown"
-                    let lastCheckedIn = (contactUserData[User.Fields.lastCheckedIn] as? Timestamp)?.dateValue() ?? Date()
-                    let checkInInterval = contactUserData[User.Fields.checkInInterval] as? TimeInterval ?? TimeManager.defaultInterval
-                    let manualAlertActive = contactUserData[User.Fields.manualAlertActive] as? Bool ?? false
-                    let manualAlertTimestamp = (contactUserData[User.Fields.manualAlertTimestamp] as? Timestamp)?.dateValue()
-                    
+                    let name = contactUserData[FirestoreConstants.UserFields.name] as? String ?? "Unknown"
+                    let lastCheckedIn = (contactUserData[FirestoreConstants.UserFields.lastCheckedIn] as? Timestamp)?.dateValue() ?? Date()
+                    let checkInInterval = contactUserData[FirestoreConstants.UserFields.checkInInterval] as? TimeInterval ?? TimeManager.defaultInterval
+                    let manualAlertActive = contactUserData[FirestoreConstants.UserFields.manualAlertActive] as? Bool ?? false
+                    let manualAlertTimestamp = (contactUserData[FirestoreConstants.UserFields.manualAlertTimestamp] as? Timestamp)?.dateValue()
+
                     // Extract relationship data
-                    let isResponder = contactData[Contact.Fields.isResponder] as? Bool ?? false
-                    let isDependent = contactData[Contact.Fields.isDependent] as? Bool ?? false
-                    let hasIncomingPing = contactData[Contact.Fields.hasIncomingPing] as? Bool ?? false
-                    let hasOutgoingPing = contactData[Contact.Fields.hasOutgoingPing] as? Bool ?? false
-                    let incomingPingTimestamp = (contactData[Contact.Fields.incomingPingTimestamp] as? Timestamp)?.dateValue()
-                    let outgoingPingTimestamp = (contactData[Contact.Fields.outgoingPingTimestamp] as? Timestamp)?.dateValue()
-                    
-                    // Create contact reference
-                    let contact = ContactReference(
+                    let isResponder = contactData[FirestoreConstants.ContactFields.isResponder] as? Bool ?? false
+                    let isDependent = contactData[FirestoreConstants.ContactFields.isDependent] as? Bool ?? false
+                    let hasIncomingPing = contactData[FirestoreConstants.ContactFields.hasIncomingPing] as? Bool ?? false
+                    let hasOutgoingPing = contactData[FirestoreConstants.ContactFields.hasOutgoingPing] as? Bool ?? false
+                    let incomingPingTimestamp = (contactData[FirestoreConstants.ContactFields.incomingPingTimestamp] as? Timestamp)?.dateValue()
+                    let outgoingPingTimestamp = (contactData[FirestoreConstants.ContactFields.outgoingPingTimestamp] as? Timestamp)?.dateValue()
+
+                    // Create contact
+                    let contact = Contact(
                         id: contactId,
                         name: name,
                         isResponder: isResponder,
@@ -98,10 +102,10 @@ extension ContactsClient: DependencyKey {
                         manualAlertActive: manualAlertActive,
                         manualAlertTimestamp: manualAlertTimestamp
                     )
-                    
+
                     contacts.append(contact)
                 }
-                
+
                 return contacts
             },
 
@@ -109,7 +113,7 @@ extension ContactsClient: DependencyKey {
                 guard let userId = AuthenticationService.shared.getCurrentUserID() else {
                     throw NSError(domain: "ContactsClient", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
                 }
-                
+
                 // Call the Firebase function to add the contact
                 let functions = Functions.functions()
                 let data: [String: Any] = [
@@ -117,7 +121,7 @@ extension ContactsClient: DependencyKey {
                     "isResponder": contact.isResponder,
                     "isDependent": contact.isDependent
                 ]
-                
+
                 let _ = try await functions.httpsCallable("addContactRelation").call(data)
                 return true
             },
@@ -126,7 +130,7 @@ extension ContactsClient: DependencyKey {
                 guard let userId = AuthenticationService.shared.getCurrentUserID() else {
                     throw NSError(domain: "ContactsClient", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
                 }
-                
+
                 // Call the Firebase function to update the contact roles
                 let functions = Functions.functions()
                 let data: [String: Any] = [
@@ -134,7 +138,7 @@ extension ContactsClient: DependencyKey {
                     "isResponder": isResponder,
                     "isDependent": isDependent
                 ]
-                
+
                 let _ = try await functions.httpsCallable("updateContactRoles").call(data)
                 return true
             },
@@ -143,13 +147,13 @@ extension ContactsClient: DependencyKey {
                 guard let userId = AuthenticationService.shared.getCurrentUserID() else {
                     throw NSError(domain: "ContactsClient", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
                 }
-                
+
                 // Call the Firebase function to delete the contact
                 let functions = Functions.functions()
                 let data: [String: Any] = [
                     "contactId": id
                 ]
-                
+
                 let _ = try await functions.httpsCallable("deleteContactRelation").call(data)
                 return true
             },
@@ -158,13 +162,13 @@ extension ContactsClient: DependencyKey {
                 guard let userId = AuthenticationService.shared.getCurrentUserID() else {
                     throw NSError(domain: "ContactsClient", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
                 }
-                
+
                 // Call the Firebase function to ping the dependent
                 let functions = Functions.functions()
                 let data: [String: Any] = [
                     "dependentId": id
                 ]
-                
+
                 let _ = try await functions.httpsCallable("pingDependent").call(data)
                 return true
             },
@@ -173,13 +177,13 @@ extension ContactsClient: DependencyKey {
                 guard let userId = AuthenticationService.shared.getCurrentUserID() else {
                     throw NSError(domain: "ContactsClient", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
                 }
-                
+
                 // Call the Firebase function to clear the ping
                 let functions = Functions.functions()
                 let data: [String: Any] = [
                     "dependentId": id
                 ]
-                
+
                 let _ = try await functions.httpsCallable("clearPing").call(data)
                 return true
             },
@@ -188,13 +192,13 @@ extension ContactsClient: DependencyKey {
                 guard let userId = AuthenticationService.shared.getCurrentUserID() else {
                     throw NSError(domain: "ContactsClient", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
                 }
-                
+
                 // Call the Firebase function to respond to the ping
                 let functions = Functions.functions()
                 let data: [String: Any] = [
                     "responderId": id
                 ]
-                
+
                 let _ = try await functions.httpsCallable("respondToPing").call(data)
                 return true
             },
@@ -203,7 +207,7 @@ extension ContactsClient: DependencyKey {
                 guard let userId = AuthenticationService.shared.getCurrentUserID() else {
                     throw NSError(domain: "ContactsClient", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
                 }
-                
+
                 // Call the Firebase function to respond to all pings
                 let functions = Functions.functions()
                 let _ = try await functions.httpsCallable("respondToAllPings").call()
@@ -214,22 +218,22 @@ extension ContactsClient: DependencyKey {
                 guard let userId = AuthenticationService.shared.getCurrentUserID() else {
                     throw NSError(domain: "ContactsClient", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
                 }
-                
+
                 // Check if the code is a valid Firestore document ID
                 let db = Firestore.firestore()
-                let userRef = db.collection(FirestoreCollections.users).document(code)
-                
+                let userRef = db.collection(FirestoreConstants.Collections.users).document(code)
+
                 let document = try await userRef.getDocument()
-                
+
                 guard let data = document.data(), document.exists else {
                     return nil
                 }
-                
+
                 // Extract user info
-                let name = data[User.Fields.name] as? String ?? "Unknown"
-                
-                // Create a contact reference
-                return ContactReference(
+                let name = data[FirestoreConstants.UserFields.name] as? String ?? "Unknown"
+
+                // Create a contact
+                return Contact(
                     id: code,
                     name: name,
                     isResponder: false,
@@ -251,7 +255,10 @@ extension ContactsClient: DependencyKey {
     static var testValue: Self {
         return Self(
             loadContacts: {
-                return []
+                return [
+                    Contact.createDefault(name: "Test Responder", isResponder: true),
+                    Contact.createDefault(name: "Test Dependent", isDependent: true)
+                ]
             },
 
             addContact: { _ in
@@ -282,8 +289,8 @@ extension ContactsClient: DependencyKey {
                 return true
             },
 
-            lookupUserByQRCode: { _ in
-                return nil
+            lookupUserByQRCode: { code in
+                return Contact.createDefault(name: "User \(code)")
             }
         )
     }

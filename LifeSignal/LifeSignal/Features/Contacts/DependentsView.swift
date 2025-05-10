@@ -105,7 +105,7 @@ struct DependentsView: View {
     /// Sort dependents based on status (manual alert, non-responsive, pinged, responsive)
     /// - Parameter dependents: The list of dependents to sort
     /// - Returns: A sorted list of dependents
-    private func sortedDependents(_ dependents: [ContactReference]) -> [ContactReference] {
+    private func sortedDependents(_ dependents: [Contact]) -> [Contact] {
         // Partition into manual alert, non-responsive, pinged, and responsive
         let (manualAlert, rest1) = dependents.partitioned { $0.manualAlertActive }
         let (nonResponsive, rest2) = rest1.partitioned { $0.isNonResponsive }
@@ -118,7 +118,13 @@ struct DependentsView: View {
 
         // Sort non-responsive by most expired first
         let sortedNonResponsive = nonResponsive.sorted {
-            ($0.checkInExpiration ?? .distantPast) < ($1.checkInExpiration ?? .distantPast)
+            guard let lastCheckIn0 = $0.lastCheckIn, let interval0 = $0.interval,
+                  let lastCheckIn1 = $1.lastCheckIn, let interval1 = $1.interval else {
+                return false
+            }
+            let expiration0 = lastCheckIn0.addingTimeInterval(interval0)
+            let expiration1 = lastCheckIn1.addingTimeInterval(interval1)
+            return expiration0 < expiration1
         }
 
         // Sort pinged by most recent ping timestamp
@@ -137,7 +143,7 @@ struct DependentsView: View {
 /// A SwiftUI view for displaying a dependent card using TCA
 struct DependentCard: View {
     /// The contact to display
-    let contact: ContactReference
+    let contact: Contact
 
     /// The store for the contacts feature
     let store: StoreOf<ContactsFeature>
@@ -164,7 +170,8 @@ struct DependentCard: View {
             }
             return "Alert active"
         } else if contact.isNonResponsive {
-            if let expiration = contact.checkInExpiration {
+            if let lastCheckIn = contact.lastCheckIn, let interval = contact.interval {
+                let expiration = lastCheckIn.addingTimeInterval(interval)
                 return "Expired \(TimeManager.shared.formatTimeAgo(expiration))"
             }
             return "Check-in expired"

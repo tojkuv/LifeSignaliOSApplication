@@ -8,7 +8,7 @@ struct AddContactFeature {
     /// The state of the add contact feature
     struct State: Equatable {
         /// The contact to add
-        var contact: ContactReference
+        var contact: Contact
 
         /// Flag indicating if the contact should be a responder
         var isResponder: Bool = true
@@ -75,7 +75,7 @@ struct AddContactFeature {
                 return .none
 
             case let .updatePhone(phone):
-                state.contact.phoneNumber = phone
+                state.contact.phone = phone
                 return .none
 
             case let .updateNote(note):
@@ -146,7 +146,7 @@ struct AddContactSheet: View {
                         ))
 
                         TextField("Phone", text: viewStore.binding(
-                            get: \.contact.phoneNumber,
+                            get: \.contact.phone,
                             send: AddContactFeature.Action.updatePhone
                         ))
                         .keyboardType(.phonePad)
@@ -218,7 +218,7 @@ extension AddContactSheet {
     ///   - contact: The contact to add
     ///   - onAdd: Callback for when the contact is added
     ///   - onClose: Callback for when adding is canceled
-    init(contact: ContactReference, onAdd: @escaping (Bool, Bool) -> Void, onClose: @escaping () -> Void) {
+    init(contact: Contact, onAdd: @escaping (Bool, Bool) -> Void, onClose: @escaping () -> Void) {
         self.store = Store(initialState: AddContactFeature.State(
             contact: contact,
             isResponder: contact.isResponder,
@@ -233,10 +233,8 @@ extension AddContactSheet {
 
 #Preview {
     AddContactSheet(
-        contact: ContactReference.createDefault(
+        contact: Contact.createDefault(
             name: "John Doe",
-            phone: "+1 (555) 123-4567",
-            note: "Emergency contact",
             isResponder: true,
             isDependent: false
         ),
