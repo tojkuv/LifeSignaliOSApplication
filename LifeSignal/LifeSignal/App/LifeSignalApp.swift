@@ -12,25 +12,11 @@ struct LifeSignalApp: App {
     @StateObject private var contactsViewModel = ContactsViewModel()
     @StateObject private var checkInViewModel = CheckInViewModel()
     @StateObject private var appState = AppState()
-    @State private var showFirebaseTest = false // Set to true to show Firebase test view
-    @State private var showUserModelTest = false // Set to true to show User Model test view
 
     var body: some Scene {
         WindowGroup {
             Group {
-                if showFirebaseTest {
-                    FirebaseTestView()
-                        .environmentObject(userProfileViewModel)
-                        .environmentObject(contactsViewModel)
-                        .environmentObject(checkInViewModel)
-                        .environmentObject(appState)
-                } else if showUserModelTest {
-                    UserModelTestView()
-                        .environmentObject(userProfileViewModel)
-                        .environmentObject(contactsViewModel)
-                        .environmentObject(checkInViewModel)
-                        .environmentObject(appState)
-                } else if !appState.isAuthenticated {
+                if !appState.isAuthenticated {
                     AuthenticationView(
                         isAuthenticated: $appState.isAuthenticated,
                         needsOnboarding: $appState.needsOnboarding

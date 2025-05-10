@@ -115,11 +115,11 @@ class FirebaseService: NSObject {
 
         // Update token in Firestore
         let db = Firestore.firestore()
-        let userRef = db.collection(FirestoreSchema.Collections.users).document(userId)
+        let userRef = db.collection(FirestoreCollections.users).document(userId)
 
         userRef.updateData([
-            FirestoreSchema.User.fcmToken: token,
-            FirestoreSchema.User.lastUpdated: FieldValue.serverTimestamp()
+            User.Fields.fcmToken: token,
+            User.Fields.lastUpdated: FieldValue.serverTimestamp()
         ]) { error in
             if let error = error {
                 print("Error updating FCM token in Firestore: \(error.localizedDescription)")

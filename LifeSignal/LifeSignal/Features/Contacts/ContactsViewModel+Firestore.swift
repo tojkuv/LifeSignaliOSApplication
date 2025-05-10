@@ -49,7 +49,7 @@ extension ContactsViewModel {
             }
 
             // Extract contacts array from the document
-            if let contactsArray = document.data()?[UserFields.contacts] as? [[String: Any]] {
+            if let contactsArray = document.data()?[User.Fields.contacts] as? [[String: Any]] {
                 // Convert to ContactReference objects
                 let contacts = contactsArray.compactMap { ContactReference.fromFirestore($0) }
 
@@ -152,11 +152,11 @@ extension ContactsViewModel {
                 // Only retrieve the minimal fields needed for contact creation
                 // This avoids accessing sensitive user data
                 let minimalUserData: [String: Any] = [
-                    UserFields.uid: userId,
-                    UserFields.name: document.data()?[UserFields.name] as? String ?? "Unknown Name",
-                    UserFields.phoneNumber: document.data()?[UserFields.phoneNumber] as? String ?? "",
-                    UserFields.note: document.data()?[UserFields.note] as? String ?? "",
-                    UserFields.qrCodeId: qrCodeId // Include the QR code ID for the contact reference
+                    User.Fields.uid: userId,
+                    User.Fields.name: document.data()?[User.Fields.name] as? String ?? "Unknown Name",
+                    User.Fields.phoneNumber: document.data()?[User.Fields.phoneNumber] as? String ?? "",
+                    User.Fields.note: document.data()?[User.Fields.note] as? String ?? "",
+                    User.Fields.qrCodeId: qrCodeId // Include the QR code ID for the contact reference
                 ]
 
                 // Return the minimal user data

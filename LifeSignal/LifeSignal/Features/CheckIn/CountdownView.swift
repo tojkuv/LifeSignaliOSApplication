@@ -131,9 +131,10 @@ struct CountdownView: View {
         }
         .sheet(isPresented: $showIntervalPicker) {
             IntervalPickerView(
-                currentInterval: checkInViewModel.checkInInterval,
-                onSave: { newInterval in
+                interval: checkInViewModel.checkInInterval,
+                onSave: { newInterval, completion in
                     checkInViewModel.updateCheckInInterval(newInterval)
+                    completion(true, nil)
                 }
             )
         }

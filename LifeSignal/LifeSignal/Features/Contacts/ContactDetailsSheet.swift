@@ -609,8 +609,7 @@ struct ContactDetailsSheet: View {
         }
 
         // Update the contact's position in the lists based on role changes
-        contactsViewModel.updateContactRoles(updatedContact, isResponder: isResponder, isDependent: isDependent) { [weak self] success, error in
-            guard let self = self else { return }
+        contactsViewModel.updateContactRoles(updatedContact, isResponder: isResponder, isDependent: isDependent) { success, error in
 
             if let error = error {
                 print("Error updating contact role: \(error.localizedDescription)")

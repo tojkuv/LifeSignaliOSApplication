@@ -304,6 +304,8 @@ struct DependentsView: View {
     }
 }
 
+// Wrapper struct to make String identifiable
+
 #Preview {
     DependentsView()
         .environmentObject(ContactsViewModel())

@@ -25,8 +25,7 @@ struct QRCodeShareView: View {
                             .foregroundColor(.secondary)
                             .padding(.bottom, 4)
 
-                        QRCodeView(qrContent: qrCodeId)
-                            .frame(width: 180, height: 180)
+                        QRCodeView(qrContent: qrCodeId, size: 180)
                             .padding(18)
                             .background(Color(UIColor.systemBackground))
                             .cornerRadius(12)

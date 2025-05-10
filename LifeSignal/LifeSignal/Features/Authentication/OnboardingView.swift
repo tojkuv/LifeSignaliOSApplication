@@ -169,7 +169,7 @@ struct OnboardingView: View {
 
         // Ensure profile is marked as complete
         let additionalData: [String: Any] = [
-            FirestoreSchema.User.profileComplete: true
+            User.Fields.profileComplete: true
         ]
 
         // Create the user document using UserProfileViewModel

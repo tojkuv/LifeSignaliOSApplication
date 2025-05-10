@@ -39,7 +39,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		98A7936F2DCEC06A00964DEC /* Exceptions for "LifeSignal" folder in "LifeSignal" target */ = {
+		98A796222DCEC9E500964DEC /* Exceptions for "LifeSignal" folder in "LifeSignal" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				App/Info.plist,
@@ -52,9 +52,19 @@
 		988BA1A62DCB131200024FD8 /* LifeSignal */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				98A7936F2DCEC06A00964DEC /* Exceptions for "LifeSignal" folder in "LifeSignal" target */,
+				98A796222DCEC9E500964DEC /* Exceptions for "LifeSignal" folder in "LifeSignal" target */,
 			);
 			path = LifeSignal;
+			sourceTree = "<group>";
+		};
+		988BA1B62DCB131400024FD8 /* LifeSignalTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = LifeSignalTests;
+			sourceTree = "<group>";
+		};
+		988BA1C02DCB131400024FD8 /* LifeSignalUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = LifeSignalUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -94,6 +104,8 @@
 			isa = PBXGroup;
 			children = (
 				988BA1A62DCB131200024FD8 /* LifeSignal */,
+				988BA1B62DCB131400024FD8 /* LifeSignalTests */,
+				988BA1C02DCB131400024FD8 /* LifeSignalUITests */,
 				988BA1142DCB11F500024FD8 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -152,6 +164,9 @@
 			dependencies = (
 				988BA1B52DCB131400024FD8 /* PBXTargetDependency */,
 			);
+			fileSystemSynchronizedGroups = (
+				988BA1B62DCB131400024FD8 /* LifeSignalTests */,
+			);
 			name = LifeSignalTests;
 			packageProductDependencies = (
 			);
@@ -171,6 +186,9 @@
 			);
 			dependencies = (
 				988BA1BF2DCB131400024FD8 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				988BA1C02DCB131400024FD8 /* LifeSignalUITests */,
 			);
 			name = LifeSignalUITests;
 			packageProductDependencies = (

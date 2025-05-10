@@ -25,8 +25,8 @@ extension UserProfileViewModel {
         let userRef = db.collection(FirestoreCollections.users).document(userId)
 
         userRef.updateData([
-            UserFields.qrCodeId: newQRCodeId,
-            UserFields.lastUpdated: Timestamp(date: Date())
+            User.Fields.qrCodeId: newQRCodeId,
+            User.Fields.lastUpdated: Timestamp(date: Date())
         ]) { [weak self] error in
             guard let self = self else { return }
 
