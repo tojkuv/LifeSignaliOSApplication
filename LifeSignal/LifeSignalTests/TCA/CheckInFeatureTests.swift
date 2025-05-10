@@ -11,7 +11,7 @@ final class CheckInFeatureTests: XCTestCase {
         let store = TestStore(initialState: CheckInFeature.State()) {
             CheckInFeature()
         } withDependencies: {
-            $0.checkInClient.updateLastCheckedIn = { true }
+            $0.userClient.updateUserFields = { _ in true }
         }
 
         let initialDate = store.state.lastCheckedIn
@@ -34,7 +34,7 @@ final class CheckInFeatureTests: XCTestCase {
         let store = TestStore(initialState: CheckInFeature.State()) {
             CheckInFeature()
         } withDependencies: {
-            $0.checkInClient.updateCheckInInterval = { _ in true }
+            $0.userClient.updateUserFields = { _ in true }
         }
 
         let newInterval: TimeInterval = 48 * 60 * 60 // 48 hours
@@ -53,7 +53,7 @@ final class CheckInFeatureTests: XCTestCase {
         let store = TestStore(initialState: CheckInFeature.State()) {
             CheckInFeature()
         } withDependencies: {
-            $0.checkInClient.updateNotificationPreferences = { _, _ in true }
+            $0.userClient.updateUserFields = { _ in true }
         }
 
         await store.send(.updateNotificationPreferences(notify30Min: false, notify2Hours: true)) {
@@ -82,7 +82,7 @@ final class CheckInFeatureTests: XCTestCase {
         let store = TestStore(initialState: CheckInFeature.State()) {
             CheckInFeature()
         } withDependencies: {
-            $0.checkInClient.loadCheckInData = { testData }
+            $0.userClient.loadCheckInData = { testData }
         }
 
         await store.send(.loadCheckInData) {
@@ -108,7 +108,7 @@ final class CheckInFeatureTests: XCTestCase {
         let store = TestStore(initialState: CheckInFeature.State()) {
             CheckInFeature()
         } withDependencies: {
-            $0.checkInClient.updateLastCheckedIn = { throw testError }
+            $0.userClient.updateUserFields = { _ in throw testError }
         }
 
         await store.send(.checkIn) {

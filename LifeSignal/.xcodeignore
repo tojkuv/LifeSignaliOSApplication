@@ -1,0 +1,3 @@
+# Files to exclude from Xcode build
+README.md
+**/README.md

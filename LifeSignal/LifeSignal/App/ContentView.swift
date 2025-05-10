@@ -6,6 +6,9 @@ import Foundation
 struct ContentView: View {
     let store: StoreOf<AppFeature>
 
+    // Notification center observer
+    @State private var resetAppStateObserver: NSObjectProtocol? = nil
+
     var body: some View {
         WithViewStore(store, observe: { $0 }) { viewStore in
             Group {
@@ -87,6 +90,24 @@ struct ContentView: View {
                     }
                     .accentColor(.blue)
                     .background(.ultraThinMaterial)
+                }
+            }
+            .onAppear {
+                // Set up notification observer for app state reset
+                resetAppStateObserver = NotificationCenter.default.addObserver(
+                    forName: NSNotification.Name("ResetAppState"),
+                    object: nil,
+                    queue: .main
+                ) { _ in
+                    // Reset the app state when session is invalidated
+                    viewStore.send(.authentication(.signOut))
+                }
+            }
+            .onDisappear {
+                // Remove the observer when the view disappears
+                if let observer = resetAppStateObserver {
+                    NotificationCenter.default.removeObserver(observer)
+                    resetAppStateObserver = nil
                 }
             }
         }

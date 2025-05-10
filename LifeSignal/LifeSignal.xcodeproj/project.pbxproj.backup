@@ -9,7 +9,7 @@
 /* Begin PBXBuildFile section */
 		9843B1A32DCEF23E0020A050 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9843B19F2DCEF20C0020A050 /* XCTest.framework */; platformFilter = ios; };
 		9843B1A42DCEF2450020A050 /* Testing.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9843B1A12DCEF21B0020A050 /* Testing.framework */; platformFilter = ios; };
-		9843B4302DCEFFC30020A050 /* ComposableArchitecture in Frameworks */ = {isa = PBXBuildFile; productRef = 9843B4312DCEFFC30020A050 /* ComposableArchitecture */; settings = {ATTRIBUTES = (Required, ); }; };
+		9843B4302DCEFFC30020A050 /* ComposableArchitecture in Frameworks */ = {isa = PBXBuildFile; productRef = 988BA9752DCC5E3B00024FD8 /* ComposableArchitecture */; };
 		988BA9752DCC5E3A00024FD8 /* FirebaseAppCheck in Frameworks */ = {isa = PBXBuildFile; productRef = 988BA9742DCC5E3A00024FD8 /* FirebaseAppCheck */; };
 		988BA9772DCC5E3A00024FD8 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 988BA9762DCC5E3A00024FD8 /* FirebaseAuth */; };
 		988BA9792DCC5E3A00024FD8 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 988BA9782DCC5E3A00024FD8 /* FirebaseCore */; };
@@ -166,7 +166,7 @@
 				988BA97A2DCC5E3A00024FD8 /* FirebaseFirestore */,
 				98A78FA62DCD665500964DEC /* FirebaseMessaging */,
 				98A78FAA2DCD709600964DEC /* FirebaseFunctions */,
-				9843B4312DCEFFC30020A050 /* ComposableArchitecture */,
+				988BA9752DCC5E3B00024FD8 /* ComposableArchitecture */,
 			);
 			productName = LifeSignal;
 			productReference = 988BA1A52DCB131200024FD8 /* LifeSignal.app */;
@@ -252,7 +252,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				988BA9732DCC5E3A00024FD8 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
-				9843B4322DCEFFC30020A050 /* XCRemoteSwiftPackageReference "swift-composable-architecture" */,
+				988BA9742DCC5E3B00024FD8 /* XCRemoteSwiftPackageReference "swift-composable-architecture" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 988BA1142DCB11F500024FD8 /* Products */;
@@ -631,14 +631,6 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		9843B4322DCEFFC30020A050 /* XCRemoteSwiftPackageReference "swift-composable-architecture" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/pointfreeco/swift-composable-architecture";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.9.2;
-			};
-		};
 		988BA9732DCC5E3A00024FD8 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
@@ -647,18 +639,26 @@
 				minimumVersion = 11.12.0;
 			};
 		};
+		988BA9742DCC5E3B00024FD8 /* XCRemoteSwiftPackageReference "swift-composable-architecture" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/pointfreeco/swift-composable-architecture";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.9.2;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		9843B4312DCEFFC30020A050 /* ComposableArchitecture */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 9843B4322DCEFFC30020A050 /* XCRemoteSwiftPackageReference "swift-composable-architecture" */;
-			productName = ComposableArchitecture;
-		};
 		988BA9742DCC5E3A00024FD8 /* FirebaseAppCheck */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 988BA9732DCC5E3A00024FD8 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseAppCheck;
+		};
+		988BA9752DCC5E3B00024FD8 /* ComposableArchitecture */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 988BA9742DCC5E3B00024FD8 /* XCRemoteSwiftPackageReference "swift-composable-architecture" */;
+			productName = ComposableArchitecture;
 		};
 		988BA9762DCC5E3A00024FD8 /* FirebaseAuth */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -8,13 +8,14 @@ final class ContactsFeatureTests: XCTestCase {
 
     /// Sample contacts for testing
     let sampleContacts = [
-        ContactReference(
+        Contact(
             id: "user1",
             name: "John Doe",
-            phoneNumber: "+1 (555) 123-4567",
-            note: "Friend",
             isResponder: true,
             isDependent: false,
+            phoneNumber: "+1 (555) 123-4567",
+            phoneRegion: "US",
+            note: "Friend",
             lastCheckedIn: Date(),
             checkInInterval: 24 * 60 * 60,
             hasIncomingPing: false,
@@ -22,13 +23,14 @@ final class ContactsFeatureTests: XCTestCase {
             receivePings: true,
             sendPings: true
         ),
-        ContactReference(
+        Contact(
             id: "user2",
             name: "Jane Smith",
-            phoneNumber: "+1 (555) 987-6543",
-            note: "Family",
             isResponder: false,
             isDependent: true,
+            phoneNumber: "+1 (555) 987-6543",
+            phoneRegion: "US",
+            note: "Family",
             lastCheckedIn: Date().addingTimeInterval(-30 * 60 * 60), // 30 hours ago
             checkInInterval: 24 * 60 * 60,
             hasIncomingPing: false,
@@ -60,13 +62,14 @@ final class ContactsFeatureTests: XCTestCase {
 
     /// Test adding a contact
     func testAddContact() async {
-        let newContact = ContactReference(
+        let newContact = Contact(
             id: "user3",
             name: "Bob Johnson",
-            phoneNumber: "+1 (555) 555-5555",
-            note: "Colleague",
             isResponder: true,
             isDependent: true,
+            phoneNumber: "+1 (555) 555-5555",
+            phoneRegion: "US",
+            note: "Colleague",
             lastCheckedIn: Date(),
             checkInInterval: 24 * 60 * 60,
             hasIncomingPing: false,
@@ -239,13 +242,14 @@ final class ContactsFeatureTests: XCTestCase {
     /// Test looking up a user by QR code
     func testLookupUserByQRCode() async {
         let qrCode = "test-qr-code"
-        let foundContact = ContactReference(
+        let foundContact = Contact(
             id: "user3",
             name: "Bob Johnson",
-            phoneNumber: "+1 (555) 555-5555",
-            note: "Colleague",
             isResponder: true,
             isDependent: false,
+            phoneNumber: "+1 (555) 555-5555",
+            phoneRegion: "US",
+            note: "Colleague",
             lastCheckedIn: Date(),
             checkInInterval: 24 * 60 * 60,
             hasIncomingPing: false,
