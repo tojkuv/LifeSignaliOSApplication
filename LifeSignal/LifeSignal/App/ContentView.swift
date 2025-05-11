@@ -1,162 +1,121 @@
 import SwiftUI
 import ComposableArchitecture
 import Foundation
+import FirebaseAuth
 
 /// The main content view using TCA
+/// Responsible for routing to the appropriate view based on authentication state
 struct ContentView: View {
     let store: StoreOf<AppFeature>
-
-    // Notification center observer
-    @State private var resetAppStateObserver: NSObjectProtocol? = nil
 
     var body: some View {
         WithViewStore(store, observe: { $0 }) { viewStore in
             Group {
                 if !viewStore.isAuthenticated {
-                    AuthenticationView(store: store.scope(
+                    // Authentication flow
+                    SignInView(store: store.scope(
                         state: \.authentication ?? AuthenticationFeature.State(),
                         action: AppFeature.Action.authentication
                     ))
                 } else if viewStore.needsOnboarding {
+                    // Onboarding flow
                     OnboardingView(store: store)
                 } else {
-                    TabView {
-                        // Home tab
-                        NavigationStack {
-                            HomeView(store: store.scope(
-                                state: \.home ?? HomeFeature.State(),
-                                action: AppFeature.Action.home
-                            ))
-                            .navigationTitle("Home")
-                            .navigationBarTitleDisplayMode(.large)
-                        }
-                        .tabItem {
-                            Label("Home", systemImage: "house.fill")
-                        }
-
-                        // Responders tab
-                        NavigationStack {
-                            RespondersView(store: store.scope(
-                                state: \.contacts ?? ContactsFeature.State(),
-                                action: AppFeature.Action.contacts
-                            ))
-                            .navigationTitle("Responders")
-                            .navigationBarTitleDisplayMode(.large)
-                        }
-                        .tabItem {
-                            Label("Responders", systemImage: "person.2.fill")
-                        }
-                        .badge(viewStore.contacts?.pendingPingsCount ?? 0)
-
-                        // Check-in tab (center)
-                        NavigationStack {
-                            CountdownView(store: store.scope(
-                                state: \.checkIn ?? CheckInFeature.State(),
-                                action: AppFeature.Action.checkIn
-                            ))
-                            .navigationTitle("Check-In")
-                            .navigationBarTitleDisplayMode(.large)
-                        }
-                        .tabItem {
-                            Label("Check-In", systemImage: "iphone.circle.fill")
-                        }
-
-                        // Dependents tab
-                        NavigationStack {
-                            DependentsView(store: store.scope(
-                                state: \.contacts ?? ContactsFeature.State(),
-                                action: AppFeature.Action.contacts
-                            ))
-                            .navigationTitle("Dependents")
-                            .navigationBarTitleDisplayMode(.large)
-                        }
-                        .tabItem {
-                            Label("Dependents", systemImage: "person.3.fill")
-                        }
-                        .badge(viewStore.contacts?.nonResponsiveDependentsCount ?? 0)
-
-                        // Profile tab
-                        NavigationStack {
-                            ProfileView(store: store.scope(
-                                state: \.profile ?? ProfileFeature.State(),
-                                action: AppFeature.Action.profile
-                            ))
-                            .navigationTitle("Profile")
-                            .navigationBarTitleDisplayMode(.large)
-                        }
-                        .tabItem {
-                            Label("Profile", systemImage: "person.crop.circle.fill")
-                        }
-                    }
-                    .accentColor(.blue)
-                    .background(.ultraThinMaterial)
+                    // Main app tabs
+                    MainTabView(store: store)
                 }
             }
             .onAppear {
-                // Set up notification observer for app state reset
-                resetAppStateObserver = NotificationCenter.default.addObserver(
-                    forName: NSNotification.Name("ResetAppState"),
-                    object: nil,
-                    queue: .main
-                ) { _ in
-                    // Reset the app state when session is invalidated
-                    viewStore.send(.authentication(.signOut))
-                }
-            }
-            .onDisappear {
-                // Remove the observer when the view disappears
-                if let observer = resetAppStateObserver {
-                    NotificationCenter.default.removeObserver(observer)
-                    resetAppStateObserver = nil
-                }
+                // Listen for session invalidation through the app feature
+                viewStore.send(.setupSessionListener(userId: Auth.auth().currentUser?.uid ?? ""))
             }
         }
     }
 }
 
-/// A SwiftUI view for onboarding using TCA
-struct OnboardingView: View {
-    /// The store for the app feature
+/// Main tab view for the authenticated user
+/// Displays the main navigation tabs of the application
+struct MainTabView: View {
     let store: StoreOf<AppFeature>
-
-    /// State for the onboarding form
-    @State private var name = ""
-    @State private var note = ""
 
     var body: some View {
         WithViewStore(store, observe: { $0 }) { viewStore in
-            NavigationStack {
-                Form {
-                    Section(header: Text("Profile Information")) {
-                        TextField("Name", text: $name)
-                        TextField("Note (Optional)", text: $note)
-                    }
+            TabView {
+                // Home tab
+                NavigationStack {
+                    HomeView(store: store)
+                    .navigationTitle("Home")
+                    .navigationBarTitleDisplayMode(.large)
+                }
+                .tabItem {
+                    Label("Home", systemImage: "house.fill")
+                }
 
-                    Section {
-                        Button(action: {
-                            // In a real implementation, we would save the profile information
-                            // and then complete onboarding
-                            viewStore.send(.completeOnboarding)
-                        }) {
-                            HStack {
-                                Spacer()
-                                Text("Complete Setup")
-                                Spacer()
-                            }
-                        }
-                        .disabled(name.isEmpty)
+                // Responders tab
+                NavigationStack {
+                    if let contactsState = viewStore.contacts {
+                        RespondersView(store: store.scope(
+                            state: { _ in contactsState },
+                            action: AppFeature.Action.contacts
+                        ))
+                        .navigationTitle("Responders")
+                        .navigationBarTitleDisplayMode(.large)
+                    } else {
+                        ProgressView("Loading responders...")
                     }
                 }
-                .navigationTitle("Setup Profile")
+                .tabItem {
+                    Label("Responders", systemImage: "person.2.fill")
+                }
+                .badge(viewStore.contacts?.pendingPingsCount ?? 0)
+
+                // Check-in tab (center)
+                NavigationStack {
+                    CheckInView(store: store)
+                    .navigationTitle("Check-In")
+                    .navigationBarTitleDisplayMode(.large)
+                }
+                .tabItem {
+                    Label("Check-In", systemImage: "iphone.circle.fill")
+                }
+
+                // Dependents tab
+                NavigationStack {
+                    if let contactsState = viewStore.contacts {
+                        DependentsView(store: store.scope(
+                            state: { _ in contactsState },
+                            action: AppFeature.Action.contacts
+                        ))
+                        .navigationTitle("Dependents")
+                        .navigationBarTitleDisplayMode(.large)
+                    } else {
+                        ProgressView("Loading dependents...")
+                    }
+                }
+                .tabItem {
+                    Label("Dependents", systemImage: "person.3.fill")
+                }
+                .badge(viewStore.contacts?.nonResponsiveDependentsCount ?? 0)
+
+                // Profile tab
+                NavigationStack {
+                    if let userState = viewStore.user {
+                        ProfileView(store: store.scope(
+                            state: { _ in userState },
+                            action: AppFeature.Action.user
+                        ))
+                        .navigationTitle("Profile")
+                        .navigationBarTitleDisplayMode(.large)
+                    } else {
+                        ProgressView("Loading profile...")
+                    }
+                }
+                .tabItem {
+                    Label("Profile", systemImage: "person.crop.circle.fill")
+                }
             }
+            .accentColor(.blue)
+            .background(.ultraThinMaterial)
         }
     }
-}
-
-#Preview {
-    ContentView(
-        store: Store(initialState: AppFeature.State()) {
-            AppFeature()
-        }
-    )
 }

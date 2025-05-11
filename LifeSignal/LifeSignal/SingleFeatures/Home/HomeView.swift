@@ -2,151 +2,149 @@ import SwiftUI
 import ComposableArchitecture
 import CoreImage.CIFilterBuiltins
 import UIKit
+import Combine
 
 /// A SwiftUI view for the home screen using TCA
 struct HomeView: View {
-    /// The store for the home feature
-    let store: StoreOf<HomeFeature>
+    /// The store for the app feature
+    let store: StoreOf<AppFeature>
+
+    /// State for UI controls
+    @State private var showQRScanner = false
+    @State private var showIntervalPicker = false
+    @State private var showInstructions = false
+    @State private var showCheckInConfirmation = false
+    @State private var showCameraDeniedAlert = false
+    @State private var showShareSheet = false
+    @State private var isGeneratingImage = false
+    @State private var qrCodeImage: UIImage? = nil
+    @State private var pendingScannedCode: String? = nil
+    @State private var newContact: Contact? = nil
 
     var body: some View {
-        WithViewStore(store, observe: { $0 }) { viewStore in
-            ScrollView {
-                LazyVStack(spacing: 16) {
-                    // QR Code Section
-                    qrCodeSection(viewStore)
+        WithViewStore(store, observe: \.user) { viewStore in
+            if let user = viewStore.state {
+                    ScrollView {
+                        LazyVStack(spacing: 16) {
+                            // QR Code Section
+                            qrCodeSection(user)
 
-                    // Add Contact Button
-                    addContactButton(viewStore)
+                            // Add Contact Button
+                            addContactButton()
 
-                    // Check-in Status Section
-                    checkInStatusSection(viewStore)
+                            // Check-in Status Section
+                            checkInStatusSection(user)
 
-                    // Settings Section
-                    settingsSection(viewStore)
+                            // Settings Section
+                            settingsSection(user)
+                        }
+                        .padding(.bottom, 60)
+                    }
+                } else {
+                    // Show loading or placeholder view when user data is not available
+                    ProgressView("Loading home...")
                 }
-                .padding(.bottom, 60)
             }
             .background(Color(.systemBackground))
-            .sheet(isPresented: viewStore.binding(
-                get: \.showQRScanner,
-                send: HomeFeature.Action.showQRScanner
-            )) {
+            .sheet(isPresented: $showQRScanner) {
                 QRScannerView(
-                    store: Store(initialState: QRScannerFeature.State()) {
-                        QRScannerFeature()
-                    },
-                    onScanned: { result in
-                        viewStore.send(.handleQRScanResult(result))
+                    onScanned: { qrCode in
+                        pendingScannedCode = qrCode
+                        showQRScanner = false
+                        // Create a temporary contact with the QR code as the ID
+                        // The Firebase function will look up the actual contact ID
+                        newContact = Contact(id: qrCode, name: "Unknown User")
                     }
                 )
             }
-            .sheet(item: Binding(
-                get: { viewStore.newContact },
-                set: { newContact in
-                    if newContact == nil {
-                        viewStore.send(.clearNewContact)
-                    }
-                }
-            )) { contact in
+            .sheet(item: $newContact) { contact in
                 AddContactSheet(
-                    contactId: contact.id,
+                    qrCode: contact.id, // This is the QR code, not the contact ID
+                    store: store.scope(state: \.contacts, action: AppFeature.Action.contacts),
                     onAdd: { isResponder, isDependent in
-                        viewStore.send(.addContact(contact, isResponder: isResponder, isDependent: isDependent))
+                        newContact = nil
                     },
                     onClose: {
-                        viewStore.send(.clearNewContact)
+                        newContact = nil
                     }
                 )
             }
-            .sheet(isPresented: viewStore.binding(
-                get: \.showIntervalPicker,
-                send: HomeFeature.Action.setShowIntervalPicker
-            )) {
+            .sheet(isPresented: $showIntervalPicker) {
                 IntervalPickerView(
-                    interval: viewStore.checkInInterval,
+                    interval: user.checkInInterval,
                     onSave: { interval in
-                        viewStore.send(.updateInterval(interval))
+                        store.send(.user(.updateCheckInInterval(interval)))
+                        showIntervalPicker = false
                     },
                     onCancel: {
-                        viewStore.send(.setShowIntervalPicker(false))
+                        showIntervalPicker = false
                     }
                 )
             }
-            .sheet(isPresented: viewStore.binding(
-                get: \.showInstructions,
-                send: HomeFeature.Action.setShowInstructions
-            )) {
+            .sheet(isPresented: $showInstructions) {
                 InstructionsView(
                     onDismiss: {
-                        viewStore.send(.setShowInstructions(false))
+                        showInstructions = false
                     }
                 )
             }
-            .alert(isPresented: viewStore.binding(
-                get: \.showCheckInConfirmation,
-                send: HomeFeature.Action.setShowCheckInConfirmation
-            )) {
+            .alert(isPresented: $showCheckInConfirmation) {
                 Alert(
                     title: Text("Check In Now?"),
                     message: Text("This will reset your countdown timer. Are you sure you want to check in now?"),
                     primaryButton: .default(Text("Check In")) {
-                        viewStore.send(.checkIn)
+                        store.send(.user(.checkIn))
                     },
                     secondaryButton: .cancel()
                 )
             }
-            .alert(isPresented: viewStore.binding(
-                get: \.showCameraDeniedAlert,
-                send: HomeFeature.Action.setShowCameraDeniedAlert
-            )) {
+            .alert(isPresented: $showCameraDeniedAlert) {
                 Alert(
                     title: Text("Camera Access Denied"),
                     message: Text("Please enable camera access in Settings to scan QR codes."),
                     dismissButton: .default(Text("OK"))
                 )
             }
-            .sheet(isPresented: viewStore.binding(
-                get: \.showShareSheet,
-                send: HomeFeature.Action.setShowShareSheet
-            )) {
-                if let image = viewStore.qrCodeImage {
+            .sheet(isPresented: $showShareSheet) {
+                if let image = qrCodeImage {
                     ShareSheet(items: [image])
                 }
-            }
-            .onAppear {
-                viewStore.send(.loadUserData)
             }
         }
     }
 
     /// QR code section of the home view
-    /// - Parameter viewStore: The view store
+    /// - Parameter user: The user state
     /// - Returns: A view containing the QR code section
-    private func qrCodeSection(_ viewStore: ViewStoreOf<HomeFeature>) -> some View {
+    private func qrCodeSection(_ user: UserFeature.State) -> some View {
         VStack(spacing: 16) {
             Text("My QR Code")
                 .font(.headline)
                 .padding(.top, 16)
 
-            if viewStore.isGeneratingImage {
+            if isGeneratingImage {
                 ProgressView()
                     .frame(width: 200, height: 200)
             } else {
-                Image(uiImage: generateQRCode(from: viewStore.qrCodeId))
+                Image(uiImage: generateQRCode(from: user.qrCodeId))
                     .interpolation(.none)
                     .resizable()
                     .scaledToFit()
                     .frame(width: 200, height: 200)
             }
 
-            Text("Scan this code to add \(viewStore.userName) as a contact")
+            Text("Scan this code to add \(user.name) as a contact")
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
 
             Button(action: {
-                viewStore.send(.generateQRCode)
+                isGeneratingImage = true
+                // Generate QR code image
+                qrCodeImage = generateQRCode(from: user.qrCodeId)
+                isGeneratingImage = false
+                showShareSheet = true
             }) {
                 Label("Share QR Code", systemImage: "square.and.arrow.up")
                     .font(.headline)
@@ -165,11 +163,10 @@ struct HomeView: View {
     }
 
     /// Add contact button section of the home view
-    /// - Parameter viewStore: The view store
     /// - Returns: A view containing the add contact button
-    private func addContactButton(_ viewStore: ViewStoreOf<HomeFeature>) -> some View {
+    private func addContactButton() -> some View {
         Button(action: {
-            viewStore.send(.showQRScanner(true))
+            showQRScanner = true
         }) {
             Label("Add Contact", systemImage: "person.badge.plus")
                 .font(.headline)
@@ -183,9 +180,9 @@ struct HomeView: View {
     }
 
     /// Check-in status section of the home view
-    /// - Parameter viewStore: The view store
+    /// - Parameter user: The user state
     /// - Returns: A view containing the check-in status section
-    private func checkInStatusSection(_ viewStore: ViewStoreOf<HomeFeature>) -> some View {
+    private func checkInStatusSection(_ user: UserFeature.State) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Check-in interval")
                 .foregroundColor(.primary)
@@ -193,10 +190,10 @@ struct HomeView: View {
                 .padding(.leading)
 
             Button(action: {
-                viewStore.send(.setShowIntervalPicker(true))
+                showIntervalPicker = true
             }) {
                 HStack {
-                    Text(formatInterval(viewStore.checkInInterval))
+                    Text(formatInterval(user.checkInInterval))
                         .foregroundColor(.primary)
 
                     Spacer()
@@ -220,18 +217,22 @@ struct HomeView: View {
     }
 
     /// Settings section of the home view
-    /// - Parameter viewStore: The view store
+    /// - Parameter user: The user state
     /// - Returns: A view containing the settings section
-    private func settingsSection(_ viewStore: ViewStoreOf<HomeFeature>) -> some View {
+    private func settingsSection(_ user: UserFeature.State) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Check-in notification")
                 .foregroundColor(.primary)
                 .padding(.horizontal)
                 .padding(.leading)
 
-            Picker("Check-in notification", selection: viewStore.binding(
-                get: \.notificationLeadTime,
-                send: { HomeFeature.Action.updateNotificationLeadTime($0) }
+            Picker("Check-in notification", selection: Binding(
+                get: { user.notify2HoursBefore ? 120 : 30 },
+                set: { newValue in
+                    let notify30Min = newValue == 30
+                    let notify2Hours = newValue == 120
+                    store.send(.user(.updateNotificationPreferences(notify30Min: notify30Min, notify2Hours: notify2Hours)))
+                }
             )) {
                 Text("30 mins").tag(30)
                 Text("2 hours").tag(120)
@@ -246,7 +247,7 @@ struct HomeView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
 
             Button(action: {
-                viewStore.send(.setShowInstructions(true))
+                showInstructions = true
             }) {
                 Label("How LifeSignal Works", systemImage: "info.circle")
                     .font(.headline)

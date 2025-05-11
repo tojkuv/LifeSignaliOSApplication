@@ -1,155 +1,149 @@
 import Foundation
+import FirebaseFirestore
 
-/// Constants for Firestore collections and fields
+/// Constants for Firestore collections, fields, and other Firebase-related values
 enum FirestoreConstants {
     /// Firestore collection names
     enum Collections {
         /// Users collection
         static let users = "users"
-
-        /// QR lookup collection
-        static let qrLookup = "qr_lookup"
-
-        /// Sessions collection
-        static let sessions = "sessions"
+        
+        /// Contacts subcollection
+        static let contacts = "contacts"
     }
-
+    
     /// User document field names
     enum UserFields {
-        /// User ID (document ID)
-        static let uid = "uid"
-
-        /// User's full name
+        /// User's name
         static let name = "name"
-
-        /// User's phone number (E.164 format)
+        
+        /// User's phone number
         static let phoneNumber = "phoneNumber"
-
-        /// User's phone region (ISO country code)
+        
+        /// User's phone region
         static let phoneRegion = "phoneRegion"
-
-        /// User's emergency profile description/note
-        static let note = "note"
-
+        
+        /// User's note
+        static let emergencyNote = "emergencyNote"
+        
+        /// User's QR code ID
+        static let qrCodeId = "qrCodeId"
+        
         /// User's check-in interval in seconds
         static let checkInInterval = "checkInInterval"
-
-        /// Timestamp of user's last check-in
+        
+        /// User's last check-in timestamp
         static let lastCheckedIn = "lastCheckedIn"
-
-        /// User's unique QR code identifier
-        static let qrCodeId = "qrCodeId"
-
-        /// Flag indicating if user should be notified 30 minutes before check-in expiration
+        
+        /// Flag indicating if user wants notification 30 minutes before check-in
         static let notify30MinBefore = "notify30MinBefore"
-
-        /// Flag indicating if user should be notified 2 hours before check-in expiration
+        
+        /// Flag indicating if user wants notification 2 hours before check-in
         static let notify2HoursBefore = "notify2HoursBefore"
-
+        
         /// User's FCM token for push notifications
         static let fcmToken = "fcmToken"
-
-        /// User's session ID for single-device authentication
+        
+        /// User's session ID
         static let sessionId = "sessionId"
-
-        /// Timestamp when user was created
-        static let createdAt = "createdAt"
-
-        /// Timestamp when user last signed in
+        
+        /// User's last sign-in time
         static let lastSignInTime = "lastSignInTime"
-
-        /// Flag indicating if user has completed profile setup
+        
+        /// Flag indicating if user's profile is complete
         static let profileComplete = "profileComplete"
-
-        /// Flag indicating if user has enabled notifications
+        
+        /// Flag indicating if notifications are enabled
         static let notificationEnabled = "notificationEnabled"
-
-        /// Array of contact references (array of maps containing relationship data)
-        static let contacts = "contacts"
-
-        /// Timestamp when user data was last updated
+        
+        /// Last updated timestamp
         static let lastUpdated = "lastUpdated"
-
-        /// Flag indicating if user has manually triggered an alert
+        
+        /// Creation timestamp
+        static let createdAt = "createdAt"
+        
+        /// Flag indicating if manual alert is active
         static let manualAlertActive = "manualAlertActive"
-
-        /// Timestamp when user manually triggered an alert
+        
+        /// Manual alert timestamp
         static let manualAlertTimestamp = "manualAlertTimestamp"
     }
-
-    /// Contact reference field names (fields within each map in the user's contacts array)
+    
+    /// Contact document field names
     enum ContactFields {
-        // MARK: - Relationship Properties
-
-        /// Path to the contact's user document
+        /// Reference path to the user document
         static let referencePath = "referencePath"
-
-        /// Whether this contact is a responder for the user
+        
+        /// Flag indicating if contact is a responder
         static let isResponder = "isResponder"
-
-        /// Whether this contact is a dependent of the user
+        
+        /// Flag indicating if contact is a dependent
         static let isDependent = "isDependent"
-
-        /// Whether to send pings to this contact
-        static let sendPings = "sendPings"
-
-        /// Whether to receive pings from this contact
-        static let receivePings = "receivePings"
-
-        /// Optional nickname for this contact
-        static let nickname = "nickname"
-
-        /// Optional notes about this contact
-        static let notes = "notes"
-
-        /// When this contact was last updated
+        
+        /// Last updated timestamp
         static let lastUpdated = "lastUpdated"
-
-        /// When this contact was added
+        
+        /// Added timestamp
         static let addedAt = "addedAt"
-
-        // MARK: - Cached User Data Properties
-        // These fields store cached copies of the contact's user data
-
-        /// User's full name (cached)
-        static let name = "name"
-
-        /// User's phone number (cached)
-        static let phoneNumber = "phoneNumber"
-
-        /// User's phone region (cached)
-        static let phoneRegion = "phoneRegion"
-
-        /// User's emergency profile description (cached)
-        static let note = "note"
-
-        /// User's QR code ID (cached)
-        static let qrCodeId = "qrCodeId"
-
-        /// User's last check-in time (cached)
-        static let lastCheckedIn = "lastCheckedIn"
-
-        /// User's check-in interval in seconds (cached)
-        static let checkInInterval = "checkInInterval"
-
-        // MARK: - Alert and Ping Properties
-
-        /// Whether this contact has an active manual alert
-        static let manualAlertActive = "manualAlertActive"
-
-        /// Timestamp when the manual alert was activated
-        static let manualAlertTimestamp = "manualAlertTimestamp"
-
-        /// Whether this contact has an incoming ping
+        
+        /// Incoming ping 
         static let hasIncomingPing = "hasIncomingPing"
-
-        /// Whether this contact has an outgoing ping
-        static let hasOutgoingPing = "hasOutgoingPing"
-
-        /// Timestamp when the incoming ping was received
+        
+        /// Incoming ping timestamp
         static let incomingPingTimestamp = "incomingPingTimestamp"
-
-        /// Timestamp when the outgoing ping was sent
+        
+        /// Outgoing ping
+        static let hasOutgoingPing = "hasOutgoingPing"
+        
+        /// Outgoing ping timestamp
         static let outgoingPingTimestamp = "outgoingPingTimestamp"
+    }
+}
+
+/// Firebase-related errors
+enum FirebaseError: Error, LocalizedError {
+    /// Document not found in Firestore
+    case documentNotFound
+    
+    /// Invalid data format
+    case invalidData
+    
+    /// Operation failed
+    case operationFailed
+    
+    /// User not authenticated
+    case notAuthenticated
+    
+    /// Permission denied
+    case permissionDenied
+    
+    /// Network error
+    case networkError
+    
+    /// Server error
+    case serverError
+    
+    /// Unknown error
+    case unknown(Error)
+    
+    var errorDescription: String? {
+        switch self {
+        case .documentNotFound:
+            return "Document not found"
+        case .invalidData:
+            return "Invalid data format"
+        case .operationFailed:
+            return "Operation failed"
+        case .notAuthenticated:
+            return "User not authenticated"
+        case .permissionDenied:
+            return "Permission denied"
+        case .networkError:
+            return "Network error"
+        case .serverError:
+            return "Server error"
+        case .unknown(let error):
+            return "Unknown error: \(error.localizedDescription)"
+        }
     }
 }

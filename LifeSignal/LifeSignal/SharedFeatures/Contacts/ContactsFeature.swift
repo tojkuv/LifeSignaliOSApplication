@@ -1,9 +1,11 @@
 import Foundation
 import ComposableArchitecture
 import FirebaseFirestore
+import FirebaseFunctions
+import FirebaseAuth
 
 /// Domain model for a contact in the TCA architecture
-struct Contact: Identifiable, Equatable, Codable {
+struct Contact: Identifiable, Equatable, Codable, Sendable {
     // MARK: - Identifiable Conformance
 
     /// Unique identifier for the contact (user ID)
@@ -17,17 +19,8 @@ struct Contact: Identifiable, Equatable, Codable {
     /// Whether this contact is a dependent of the user
     var isDependent: Bool
 
-    /// Whether to send pings to this contact
-    var sendPings: Bool = true
-
-    /// Whether to receive pings from this contact
-    var receivePings: Bool = true
-
-    /// Optional nickname for this contact
-    var nickname: String?
-
-    /// Optional notes about this contact
-    var notes: String?
+    /// User's emergency note
+    var emergencyNote: String?
 
     /// When this contact was last updated
     var lastUpdated: Date = Date()
@@ -39,44 +32,6 @@ struct Contact: Identifiable, Equatable, Codable {
 
     /// User's full name
     var name: String = "Unknown User"
-
-    /// User's phone number (E.164 format)
-    var phoneNumber: String = ""
-
-    /// User's phone region (ISO country code)
-    var phoneRegion: String = "US"
-
-    /// User's emergency profile description
-    var note: String = ""
-
-    /// User's QR code ID
-    var qrCodeId: String?
-
-    /// User's last check-in time
-    var lastCheckedIn: Date?
-
-    /// User's check-in interval in seconds
-    var checkInInterval: TimeInterval?
-
-    // MARK: - Alert and Ping Properties
-
-    /// Whether this contact has an active manual alert
-    var manualAlertActive: Bool = false
-
-    /// Timestamp when the manual alert was activated
-    var manualAlertTimestamp: Date?
-
-    /// Whether this contact has an incoming ping
-    var hasIncomingPing: Bool = false
-
-    /// Whether this contact has an outgoing ping
-    var hasOutgoingPing: Bool = false
-
-    /// Timestamp when the incoming ping was received
-    var incomingPingTimestamp: Date?
-
-    /// Timestamp when the outgoing ping was sent
-    var outgoingPingTimestamp: Date?
 
     // MARK: - Computed Properties
 
@@ -95,55 +50,33 @@ struct Contact: Identifiable, Equatable, Codable {
         return isNonResponsive
     }
 
-    /// Formatted time remaining until check-in expiration
-    var formattedTimeRemaining: String {
-        guard let lastCheckedIn = lastCheckedIn, let checkInInterval = checkInInterval else {
-            return ""
-        }
+    // MARK: - Additional Properties
 
-        let expirationTime = lastCheckedIn.addingTimeInterval(checkInInterval)
-        let timeRemaining = expirationTime.timeIntervalSince(Date())
+    /// User's last check-in time
+    var lastCheckedIn: Date?
 
-        if timeRemaining <= 0 {
-            return "Overdue"
-        }
+    /// User's check-in interval in seconds
+    var checkInInterval: TimeInterval?
 
-        // Format the time remaining
-        let days = Int(timeRemaining / (60 * 60 * 24))
-        let hours = Int((timeRemaining.truncatingRemainder(dividingBy: 60 * 60 * 24)) / (60 * 60))
+    /// Whether this contact has an incoming ping
+    var hasIncomingPing: Bool = false
 
-        if days > 0 {
-            return "\(days)d \(hours)h"
-        } else {
-            let minutes = Int((timeRemaining.truncatingRemainder(dividingBy: 60 * 60)) / 60)
-            return "\(hours)h \(minutes)m"
-        }
-    }
+    /// Whether this contact has an outgoing ping
+    var hasOutgoingPing: Bool = false
 
     // MARK: - Initialization
 
-    /// Initialize a new Contact with all properties
+    /// Initialize a new Contact with essential properties
     init(
         id: String,
         name: String = "Unknown User",
         isResponder: Bool = false,
         isDependent: Bool = false,
-        phoneNumber: String = "",
-        phoneRegion: String = "US",
-        note: String = "",
+        emergencyNote: String? = nil,
         lastCheckedIn: Date? = nil,
         checkInInterval: TimeInterval? = nil,
         hasIncomingPing: Bool = false,
         hasOutgoingPing: Bool = false,
-        incomingPingTimestamp: Date? = nil,
-        outgoingPingTimestamp: Date? = nil,
-        manualAlertActive: Bool = false,
-        manualAlertTimestamp: Date? = nil,
-        sendPings: Bool = true,
-        receivePings: Bool = true,
-        nickname: String? = nil,
-        notes: String? = nil,
-        qrCodeId: String? = nil,
         addedAt: Date = Date(),
         lastUpdated: Date = Date()
     ) {
@@ -151,22 +84,11 @@ struct Contact: Identifiable, Equatable, Codable {
         self.name = name
         self.isResponder = isResponder
         self.isDependent = isDependent
-        self.phoneNumber = phoneNumber
-        self.phoneRegion = phoneRegion
-        self.note = note
+        self.emergencyNote = emergencyNote
         self.lastCheckedIn = lastCheckedIn
         self.checkInInterval = checkInInterval
         self.hasIncomingPing = hasIncomingPing
         self.hasOutgoingPing = hasOutgoingPing
-        self.incomingPingTimestamp = incomingPingTimestamp
-        self.outgoingPingTimestamp = outgoingPingTimestamp
-        self.manualAlertActive = manualAlertActive
-        self.manualAlertTimestamp = manualAlertTimestamp
-        self.sendPings = sendPings
-        self.receivePings = receivePings
-        self.nickname = nickname
-        self.notes = notes
-        self.qrCodeId = qrCodeId
         self.addedAt = addedAt
         self.lastUpdated = lastUpdated
     }
@@ -194,56 +116,29 @@ struct Contact: Identifiable, Equatable, Codable {
             FirestoreConstants.ContactFields.referencePath: "users/\(id)",
             FirestoreConstants.ContactFields.isResponder: isResponder,
             FirestoreConstants.ContactFields.isDependent: isDependent,
-            FirestoreConstants.ContactFields.sendPings: sendPings,
-            FirestoreConstants.ContactFields.receivePings: receivePings,
             FirestoreConstants.ContactFields.lastUpdated: Timestamp(date: lastUpdated),
             FirestoreConstants.ContactFields.addedAt: Timestamp(date: addedAt)
         ]
 
         // Add optional fields if they exist
-        if let nickname = nickname {
-            data[FirestoreConstants.ContactFields.nickname] = nickname
+        if let emergencyNote = emergencyNote {
+            data[FirestoreConstants.UserFields.emergencyNote] = emergencyNote
         }
 
-        if let notes = notes {
-            data[FirestoreConstants.ContactFields.notes] = notes
-        }
-
-        // Add cached user data properties
-        data[FirestoreConstants.ContactFields.name] = name
-        data[FirestoreConstants.ContactFields.phoneNumber] = phoneNumber
-        data[FirestoreConstants.ContactFields.phoneRegion] = phoneRegion
-        data[FirestoreConstants.ContactFields.note] = note
-
-        if let qrCodeId = qrCodeId {
-            data[FirestoreConstants.ContactFields.qrCodeId] = qrCodeId
-        }
+        // Add name
+        data[FirestoreConstants.UserFields.name] = name
 
         if let lastCheckedIn = lastCheckedIn {
-            data[FirestoreConstants.ContactFields.lastCheckedIn] = Timestamp(date: lastCheckedIn)
+            data[FirestoreConstants.UserFields.lastCheckedIn] = Timestamp(date: lastCheckedIn)
         }
 
         if let checkInInterval = checkInInterval {
-            data[FirestoreConstants.ContactFields.checkInInterval] = checkInInterval
+            data[FirestoreConstants.UserFields.checkInInterval] = checkInInterval
         }
 
-        // Add alert and ping properties
-        data[FirestoreConstants.ContactFields.manualAlertActive] = manualAlertActive
-
-        if let manualAlertTimestamp = manualAlertTimestamp {
-            data[FirestoreConstants.ContactFields.manualAlertTimestamp] = Timestamp(date: manualAlertTimestamp)
-        }
-
-        data[FirestoreConstants.ContactFields.hasIncomingPing] = hasIncomingPing
-        data[FirestoreConstants.ContactFields.hasOutgoingPing] = hasOutgoingPing
-
-        if let incomingPingTimestamp = incomingPingTimestamp {
-            data[FirestoreConstants.ContactFields.incomingPingTimestamp] = Timestamp(date: incomingPingTimestamp)
-        }
-
-        if let outgoingPingTimestamp = outgoingPingTimestamp {
-            data[FirestoreConstants.ContactFields.outgoingPingTimestamp] = Timestamp(date: outgoingPingTimestamp)
-        }
+        // Add ping properties
+        data[FirestoreConstants.ContactFields.incomingPing] = hasIncomingPing
+        data[FirestoreConstants.ContactFields.outgoingPing] = hasOutgoingPing
 
         return data
     }
@@ -257,7 +152,7 @@ struct Contact: Identifiable, Equatable, Codable {
         let isDependent = data[FirestoreConstants.ContactFields.isDependent] as? Bool ?? false
 
         // Extract user data
-        let name = data[FirestoreConstants.ContactFields.name] as? String ?? "Unknown User"
+        let name = data[FirestoreConstants.UserFields.name] as? String ?? "Unknown User"
 
         // Create contact with basic info
         var contact = Contact(
@@ -268,10 +163,7 @@ struct Contact: Identifiable, Equatable, Codable {
         )
 
         // Set relationship properties
-        contact.sendPings = data[FirestoreConstants.ContactFields.sendPings] as? Bool ?? true
-        contact.receivePings = data[FirestoreConstants.ContactFields.receivePings] as? Bool ?? true
-        contact.nickname = data[FirestoreConstants.ContactFields.nickname] as? String
-        contact.notes = data[FirestoreConstants.ContactFields.notes] as? String
+        contact.emergencyNote = data[FirestoreConstants.UserFields.emergencyNote] as? String
 
         // Set timestamps
         if let lastUpdated = data[FirestoreConstants.ContactFields.lastUpdated] as? Timestamp {
@@ -282,51 +174,19 @@ struct Contact: Identifiable, Equatable, Codable {
             contact.addedAt = addedAt.dateValue()
         }
 
-        // Set cached user data properties
-
-        // Phone number
-        if let phoneNumber = data[FirestoreConstants.ContactFields.phoneNumber] as? String, !phoneNumber.isEmpty {
-            contact.phoneNumber = phoneNumber
-        }
-
-        // Phone region
-        if let phoneRegion = data[FirestoreConstants.ContactFields.phoneRegion] as? String, !phoneRegion.isEmpty {
-            contact.phoneRegion = phoneRegion
-        }
-
-        // Note
-        contact.note = data[FirestoreConstants.ContactFields.note] as? String ?? ""
-
-        // QR code ID
-        contact.qrCodeId = data[FirestoreConstants.ContactFields.qrCodeId] as? String
-
         // Last checked in
-        if let lastCheckedIn = data[FirestoreConstants.ContactFields.lastCheckedIn] as? Timestamp {
+        if let lastCheckedIn = data[FirestoreConstants.UserFields.lastCheckedIn] as? Timestamp {
             contact.lastCheckedIn = lastCheckedIn.dateValue()
         }
 
         // Check-in interval
-        if let checkInInterval = data[FirestoreConstants.ContactFields.checkInInterval] as? TimeInterval {
+        if let checkInInterval = data[FirestoreConstants.UserFields.checkInInterval] as? TimeInterval {
             contact.checkInInterval = checkInInterval
         }
 
-        // Set alert and ping properties
-        contact.manualAlertActive = data[FirestoreConstants.ContactFields.manualAlertActive] as? Bool ?? false
-
-        if let manualAlertTimestamp = data[FirestoreConstants.ContactFields.manualAlertTimestamp] as? Timestamp {
-            contact.manualAlertTimestamp = manualAlertTimestamp.dateValue()
-        }
-
-        contact.hasIncomingPing = data[FirestoreConstants.ContactFields.hasIncomingPing] as? Bool ?? false
-        contact.hasOutgoingPing = data[FirestoreConstants.ContactFields.hasOutgoingPing] as? Bool ?? false
-
-        if let incomingPingTimestamp = data[FirestoreConstants.ContactFields.incomingPingTimestamp] as? Timestamp {
-            contact.incomingPingTimestamp = incomingPingTimestamp.dateValue()
-        }
-
-        if let outgoingPingTimestamp = data[FirestoreConstants.ContactFields.outgoingPingTimestamp] as? Timestamp {
-            contact.outgoingPingTimestamp = outgoingPingTimestamp.dateValue()
-        }
+        // Set ping properties
+        contact.hasIncomingPing = data[FirestoreConstants.ContactFields.incomingPing] as? Bool ?? false
+        contact.hasOutgoingPing = data[FirestoreConstants.ContactFields.outgoingPing] as? Bool ?? false
 
         return contact
     }
@@ -361,6 +221,23 @@ struct ContactsFeature {
         /// Count of pending pings
         var pendingPingsCount: Int = 0
 
+        // MARK: - Add Contact State
+
+        /// QR code or contact ID for adding a new contact
+        var newContactId: String = ""
+
+        /// Name for the new contact
+        var newContactName: String = ""
+
+        /// Phone number for the new contact
+        var newContactPhone: String = ""
+
+        /// Whether the new contact should be a responder
+        var newContactIsResponder: Bool = false
+
+        /// Whether the new contact should be a dependent
+        var newContactIsDependent: Bool = false
+
         // MARK: - Computed Properties
 
         /// Computed property for responders
@@ -372,19 +249,10 @@ struct ContactsFeature {
         var dependents: [Contact] {
             contacts.filter { $0.isDependent }
         }
-
-        /// Custom Equatable implementation to handle Error? property
-        static func == (lhs: State, rhs: State) -> Bool {
-            lhs.contacts == rhs.contacts &&
-            lhs.isLoading == rhs.isLoading &&
-            lhs.nonResponsiveDependentsCount == rhs.nonResponsiveDependentsCount &&
-            lhs.pendingPingsCount == rhs.pendingPingsCount &&
-            (lhs.error != nil) == (rhs.error != nil)
-        }
     }
 
     /// Actions that can be performed on the contacts feature
-    enum Action: Equatable {
+    enum Action: Equatable, Sendable {
         // MARK: - Data Loading
 
         /// Load contacts from Firestore
@@ -398,10 +266,6 @@ struct ContactsFeature {
 
         // MARK: - Contact Management
 
-        /// Add a contact
-        case addContact(Contact)
-        case addContactResponse(TaskResult<Bool>)
-
         /// Update a contact's roles
         case updateContactRoles(id: String, isResponder: Bool, isDependent: Bool)
         case updateContactRolesResponse(TaskResult<Bool>)
@@ -409,6 +273,30 @@ struct ContactsFeature {
         /// Delete a contact
         case deleteContact(id: String)
         case deleteContactResponse(TaskResult<Bool>)
+
+        // MARK: - Add Contact Operations
+
+        /// Update the new contact ID (QR code)
+        case updateNewContactId(String)
+
+        /// Update the new contact name
+        case updateNewContactName(String)
+
+        /// Update the new contact phone
+        case updateNewContactPhone(String)
+
+        /// Update whether the new contact should be a responder
+        case updateNewContactIsResponder(Bool)
+
+        /// Update whether the new contact should be a dependent
+        case updateNewContactIsDependent(Bool)
+
+        /// Add a new contact using the QR code
+        case addNewContact
+        case addNewContactResponse(TaskResult<Bool>)
+
+        /// Dismiss the add contact sheet
+        case dismissAddContactSheet
 
         // MARK: - Ping Operations
 
@@ -428,19 +316,112 @@ struct ContactsFeature {
         case respondToAllPings
         case respondToAllPingsResponse(TaskResult<Bool>)
 
-        // MARK: - User Lookup
-
-        /// Look up a user by QR code
-        case lookupUserByQRCode(String)
-        case lookupUserByQRCodeResponse(TaskResult<Contact?>)
+        /// Contacts stream feature actions
+        case contactsStream(ContactsStreamFeature.Action)
     }
 
     /// Dependencies for the contacts feature
-    @Dependency(\.contactsClient) var contactsClient
+
+    @Dependency(\.contactsStreamFeature) var contactsStreamFeature
+
+    /// Helper method to create a Contact from Firestore data
+    private func createContactFromData(from contactData: [String: Any], userData: [String: Any], contactId: String) -> Contact? {
+        // Extract user info
+        let name = userData[FirestoreConstants.UserFields.name] as? String ?? "Unknown"
+
+        // Create a contact with simplified properties
+        return Contact(
+            id: contactId,
+            name: name,
+            isResponder: contactData[FirestoreConstants.ContactFields.isResponder] as? Bool ?? false,
+            isDependent: contactData[FirestoreConstants.ContactFields.isDependent] as? Bool ?? false,
+            emergencyNote: userData[FirestoreConstants.UserFields.emergencyNote] as? String,
+            lastCheckedIn: (userData[FirestoreConstants.UserFields.lastCheckedIn] as? Timestamp)?.dateValue(),
+            checkInInterval: userData[FirestoreConstants.UserFields.checkInInterval] as? TimeInterval,
+            hasIncomingPing: contactData[FirestoreConstants.ContactFields.hasIncomingPing] as? Bool ?? false,
+            hasOutgoingPing: contactData[FirestoreConstants.ContactFields.hasOutgoingPing] as? Bool ?? false,
+            addedAt: (contactData[FirestoreConstants.ContactFields.addedAt] as? Timestamp)?.dateValue() ?? Date(),
+            lastUpdated: (contactData[FirestoreConstants.ContactFields.lastUpdated] as? Timestamp)?.dateValue() ?? Date()
+        )
+    }
+
+    /// Helper method to load contacts directly from Firebase
+    private func loadContactsDirectly() async throws -> [Contact] {
+        // Get the current user ID directly from Firebase Auth
+        guard let userId = Auth.auth().currentUser?.uid else {
+            throw NSError(domain: "ContactsFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+        }
+
+        // Get contacts from the contacts subcollection
+        let contactsPath = "\(FirestoreConstants.Collections.users)/\(userId)/\(FirestoreConstants.Collections.contacts)"
+        let db = Firestore.firestore()
+        let collectionRef = db.collection(contactsPath)
+        let querySnapshot = try await collectionRef.getDocuments()
+        let contactsSnapshot = querySnapshot.documents
+
+        var contacts: [Contact] = []
+
+        // Process each contact document
+        for contactDoc in contactsSnapshot {
+            let contactId = contactDoc.documentID
+            let contactData = contactDoc.data()
+
+            // Get the contact's user document
+            let documentSnapshot = try await db.collection(FirestoreConstants.Collections.users).document(contactId).getDocument()
+
+            guard documentSnapshot.exists, let contactUserData = documentSnapshot.data() else {
+                continue // Skip this contact if user document not found
+            }
+
+            // Create contact using the simplified helper method
+            if let contact = createContactFromData(from: contactData, userData: contactUserData, contactId: contactId) {
+                contacts.append(contact)
+            }
+        }
+
+        return contacts
+    }
 
     /// The body of the reducer
     var body: some ReducerOf<Self> {
         Reduce { state, action in
+            // Handle contacts stream feature actions
+            if case let .contactsStream(.contactsUpdated(contacts, _)) = action {
+                // Process the updated contacts data
+                Task {
+                    do {
+                        var processedContacts: [Contact] = []
+
+                        // Process each contact document
+                        for contactDoc in contacts {
+                            let contactId = contactDoc.documentID
+                            let contactData = contactDoc.data() ?? [:]
+
+                            // Get the contact's user document
+                            let db = Firestore.firestore()
+                            let documentSnapshot = try await db.collection(FirestoreConstants.Collections.users).document(contactId).getDocument()
+
+                            guard documentSnapshot.exists, let contactUserData = documentSnapshot.data() else {
+                                continue
+                            }
+
+                            // Create contact using helper method
+                            if let contact = createContactFromData(from: contactData, userData: contactUserData, contactId: contactId) {
+                                processedContacts.append(contact)
+                            }
+                        }
+
+                        // Send the processed contacts
+                        await send(.contactsStreamResponse(processedContacts))
+                    } catch {
+                        print("Error processing contacts: \(error.localizedDescription)")
+                    }
+                }
+                return .none
+            } else if case .contactsStream = action {
+                return .none
+            }
+
             switch action {
             // MARK: - Data Loading
 
@@ -448,8 +429,7 @@ struct ContactsFeature {
                 state.isLoading = true
                 return .run { send in
                     do {
-                        // Load all contacts at once
-                        let contacts = try await contactsClient.loadContacts()
+                        let contacts = try await loadContactsDirectly()
                         await send(.loadContactsResponse(.success(contacts)))
                     } catch {
                         await send(.loadContactsResponse(.failure(error)))
@@ -470,17 +450,25 @@ struct ContactsFeature {
                 }
 
             case .startContactsStream:
-                // Start streaming contacts
+                // Start streaming contacts using the ContactsStreamFeature
                 return .run { send in
-                    // Get the contacts stream
-                    let stream = contactsClient.streamContacts()
+                    do {
+                        guard let userId = Auth.auth().currentUser?.uid else {
+                            throw NSError(domain: "ContactsFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+                        }
 
-                    // Process each update from the stream
-                    for await contacts in stream {
-                        await send(.contactsStreamResponse(contacts))
+                        // Get the initial contacts data
+                        let initialContacts = try await loadContactsDirectly()
+
+                        // Send the initial data
+                        await send(.contactsStreamResponse(initialContacts))
+
+                        // Start the contacts stream
+                        await send(.contactsStream(.startStream(userId: userId)))
+                    } catch {
+                        print("Error starting contacts stream: \(error.localizedDescription)")
                     }
                 }
-                .cancellable(id: CancelID.contactsStream)
 
             case let .contactsStreamResponse(contacts):
                 // Update state with the latest contacts from the stream
@@ -490,30 +478,10 @@ struct ContactsFeature {
                 return .none
 
             case .stopContactsStream:
-                // Cancel the contacts stream
-                return .cancel(id: CancelID.contactsStream)
+                // Stop the contacts stream
+                return .send(.contactsStream(.stopStream))
 
             // MARK: - Contact Management
-
-            case let .addContact(contact):
-                state.isLoading = true
-                return .run { send in
-                    let result = await TaskResult {
-                        try await contactsClient.addContact(contact)
-                    }
-                    await send(.addContactResponse(result))
-                }
-
-            case let .addContactResponse(result):
-                state.isLoading = false
-                switch result {
-                case .success:
-                    // Reload contacts to get the updated list
-                    return .send(.loadContacts)
-                case let .failure(error):
-                    state.error = error
-                    return .none
-                }
 
             case let .updateContactRoles(id, isResponder, isDependent):
                 state.isLoading = true
@@ -526,7 +494,26 @@ struct ContactsFeature {
 
                 return .run { send in
                     let result = await TaskResult {
-                        try await contactsClient.updateContactRoles(id, isResponder, isDependent)
+                        guard let userId = Auth.auth().currentUser?.uid else {
+                            throw NSError(domain: "ContactsFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+                        }
+
+                        // Call the Firebase function to update the contact roles
+                        let data: [String: Any] = [
+                            "userRefPath": "users/\(userId)",
+                            "contactRefPath": "users/\(id)",
+                            "isResponder": isResponder,
+                            "isDependent": isDependent
+                        ]
+
+                        let functions = Functions.functions()
+                        let result = try await functions.httpsCallable("updateContactRoles").call(data)
+
+                        guard let _ = result.data as? [String: Any] else {
+                            throw FirebaseError.invalidData
+                        }
+
+                        return true
                     }
                     await send(.updateContactRolesResponse(result))
                 }
@@ -551,7 +538,24 @@ struct ContactsFeature {
 
                 return .run { send in
                     let result = await TaskResult {
-                        try await contactsClient.deleteContact(id)
+                        guard let userId = Auth.auth().currentUser?.uid else {
+                            throw NSError(domain: "ContactsFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+                        }
+
+                        // Call the Firebase function to delete the contact
+                        let data: [String: Any] = [
+                            "userARefPath": "users/\(userId)",
+                            "userBRefPath": "users/\(id)"
+                        ]
+
+                        let functions = Functions.functions()
+                        let result = try await functions.httpsCallable("deleteContactRelation").call(data)
+
+                        guard let _ = result.data as? [String: Any] else {
+                            throw FirebaseError.invalidData
+                        }
+
+                        return true
                     }
                     await send(.deleteContactResponse(result))
                 }
@@ -580,7 +584,23 @@ struct ContactsFeature {
 
                 return .run { send in
                     let result = await TaskResult {
-                        try await contactsClient.pingDependent(id)
+                        guard Auth.auth().currentUser?.uid != nil else {
+                            throw NSError(domain: "ContactsFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+                        }
+
+                        // Call the Firebase function to ping the dependent
+                        let data: [String: Any] = [
+                            "dependentId": id
+                        ]
+
+                        let functions = Functions.functions()
+                        let result = try await functions.httpsCallable("pingDependent").call(data)
+
+                        guard let _ = result.data as? [String: Any] else {
+                            throw FirebaseError.invalidData
+                        }
+
+                        return true
                     }
                     await send(.pingDependentResponse(result))
                 }
@@ -607,7 +627,24 @@ struct ContactsFeature {
 
                 return .run { send in
                     let result = await TaskResult {
-                        try await contactsClient.clearPing(id)
+                        guard let userId = Auth.auth().currentUser?.uid else {
+                            throw NSError(domain: "ContactsFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+                        }
+
+                        // Call the Firebase function to clear the ping
+                        let data: [String: Any] = [
+                            "userId": userId,
+                            "contactId": id
+                        ]
+
+                        let functions = Functions.functions()
+                        let result = try await functions.httpsCallable("clearPing").call(data)
+
+                        guard let _ = result.data as? [String: Any] else {
+                            throw FirebaseError.invalidData
+                        }
+
+                        return true
                     }
                     await send(.clearPingResponse(result))
                 }
@@ -635,7 +672,23 @@ struct ContactsFeature {
 
                 return .run { send in
                     let result = await TaskResult {
-                        try await contactsClient.respondToPing(id)
+                        guard Auth.auth().currentUser?.uid != nil else {
+                            throw NSError(domain: "ContactsFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+                        }
+
+                        // Call the Firebase function to respond to the ping
+                        let data: [String: Any] = [
+                            "responderId": id
+                        ]
+
+                        let functions = Functions.functions()
+                        let result = try await functions.httpsCallable("respondToPing").call(data)
+
+                        guard let _ = result.data as? [String: Any] else {
+                            throw FirebaseError.invalidData
+                        }
+
+                        return true
                     }
                     await send(.respondToPingResponse(result))
                 }
@@ -663,7 +716,19 @@ struct ContactsFeature {
 
                 return .run { send in
                     let result = await TaskResult {
-                        try await contactsClient.respondToAllPings()
+                        guard Auth.auth().currentUser?.uid != nil else {
+                            throw NSError(domain: "ContactsFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+                        }
+
+                        // Call the Firebase function to respond to all pings
+                        let functions = Functions.functions()
+                        let result = try await functions.httpsCallable("respondToAllPings").call(nil)
+
+                        guard let _ = result.data as? [String: Any] else {
+                            throw FirebaseError.invalidData
+                        }
+
+                        return true
                     }
                     await send(.respondToAllPingsResponse(result))
                 }
@@ -680,28 +745,96 @@ struct ContactsFeature {
                     return .send(.loadContacts)
                 }
 
-            // MARK: - User Lookup
+            // MARK: - Add Contact Operations
 
-            case let .lookupUserByQRCode(code):
+            case let .updateNewContactId(id):
+                state.newContactId = id
+                return .none
+
+            case let .updateNewContactName(name):
+                state.newContactName = name
+                return .none
+
+            case let .updateNewContactPhone(phone):
+                state.newContactPhone = phone
+                return .none
+
+            case let .updateNewContactIsResponder(isResponder):
+                state.newContactIsResponder = isResponder
+                return .none
+
+            case let .updateNewContactIsDependent(isDependent):
+                state.newContactIsDependent = isDependent
+                return .none
+
+            case .addNewContact:
                 state.isLoading = true
-                return .run { send in
-                    let result = await TaskResult {
-                        try await contactsClient.lookupUserByQRCode(code)
-                    }
-                    await send(.lookupUserByQRCodeResponse(result))
+
+                // Ensure at least one role is selected
+                guard state.newContactIsResponder || state.newContactIsDependent else {
+                    state.isLoading = false
+                    state.error = NSError(domain: "ContactsFeature", code: 400, userInfo: [NSLocalizedDescriptionKey: "At least one role must be selected"])
+                    return .none
                 }
 
-            case let .lookupUserByQRCodeResponse(result):
+                return .run { [qrCode = state.newContactId, isResponder = state.newContactIsResponder, isDependent = state.newContactIsDependent] send in
+                    let result = await TaskResult {
+                        guard let userId = Auth.auth().currentUser?.uid else {
+                            throw NSError(domain: "ContactsFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+                        }
+
+                        // Call the Firebase function to add a contact using the QR code
+                        // The Firebase function only needs userId, qrCode, isResponder, and isDependent
+                        // The name and phone are not needed as they are retrieved from the target user's document
+                        let data: [String: Any] = [
+                            "userId": userId,
+                            "qrCode": qrCode,
+                            "isResponder": isResponder,
+                            "isDependent": isDependent
+                        ]
+
+                        let functions = Functions.functions()
+                        let result = try await functions.httpsCallable("addContactRelation").call(data)
+
+                        guard let _ = result.data as? [String: Any] else {
+                            throw FirebaseError.invalidData
+                        }
+
+                        return true
+                    }
+                    await send(.addNewContactResponse(result))
+                }
+
+            case let .addNewContactResponse(result):
                 state.isLoading = false
                 switch result {
                 case .success:
-                    // Handle in the view
-                    return .none
+                    // Reset the add contact form
+                    state.newContactId = ""
+                    state.newContactName = ""
+                    state.newContactPhone = ""
+                    state.newContactIsResponder = false
+                    state.newContactIsDependent = false
+
+                    // Reload contacts to get the newly added contact
+                    return .send(.loadContacts)
                 case let .failure(error):
                     state.error = error
                     return .none
                 }
+
+            case .dismissAddContactSheet:
+                // Reset the add contact form
+                state.newContactId = ""
+                state.newContactName = ""
+                state.newContactPhone = ""
+                state.newContactIsResponder = false
+                state.newContactIsDependent = false
+                return .none
             }
+        }
+        .ifLet(\.contactsStream, action: /Action.contactsStream) {
+            ContactsStreamFeature()
         }
     }
 }

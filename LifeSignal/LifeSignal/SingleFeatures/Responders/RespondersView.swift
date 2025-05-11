@@ -1,5 +1,6 @@
 import SwiftUI
 import ComposableArchitecture
+import UIKit
 
 /// A SwiftUI view for displaying responders using TCA
 struct RespondersView: View {
@@ -40,7 +41,7 @@ struct RespondersView: View {
                             } else {
                                 // Use the sorted responders
                                 ForEach(sortedResponders(viewStore.responders)) { responder in
-                                    ResponderCard(
+                                    ResponderCardView(
                                         contact: responder,
                                         store: store
                                     )
@@ -78,19 +79,13 @@ struct RespondersView: View {
                 }
             }
             .sheet(isPresented: $showQRScanner, onDismiss: {
-                if let code = pendingScannedCode {
-                    // Use the scanned code directly as the contact ID
+                if let qrCode = pendingScannedCode {
+                    // Use the scanned QR code to look up the contact ID via Firebase function
+                    // The QR code is not the contact ID itself
                     let sheet = AddContactSheet(
-                        contactId: code,
+                        qrCode: qrCode,
+                        store: store,
                         onAdd: { isResponder, isDependent in
-                            // Create a Contact object and add it
-                            let contact = Contact(
-                                id: code,
-                                name: "Unknown User", // Will be updated from Firestore
-                                isResponder: isResponder,
-                                isDependent: isDependent
-                            )
-                            viewStore.send(.addContact(contact))
                             showContactAddedAlert = true
                         },
                         onClose: { }
@@ -153,63 +148,7 @@ struct RespondersView: View {
     }
 }
 
-/// A SwiftUI view for displaying a responder card using TCA
-struct ResponderCard: View {
-    /// The contact to display
-    let contact: Contact
 
-    /// The store for the contacts feature
-    let store: StoreOf<ContactsFeature>
-
-    /// State for UI controls
-    @State private var showContactDetails = false
-
-    var statusText: String {
-        if contact.hasIncomingPing, let pingTime = contact.incomingPingTimestamp {
-            return "Pinged \(TimeManager.shared.formatTimeAgo(pingTime))"
-        }
-        return ""
-    }
-
-    var body: some View {
-        WithViewStore(store, observe: { $0 }) { viewStore in
-            ContactCardView(
-                contact: contact,
-                statusColor: contact.hasIncomingPing ? .blue : .secondary,
-                statusText: statusText,
-                context: .responder,
-                trailingContent: {
-                    if contact.hasIncomingPing {
-                        Button(action: {
-                            viewStore.send(.respondToPing(id: contact.id))
-                        }) {
-                            Circle()
-                                .fill(Color(UIColor.systemBackground))
-                                .frame(width: 40, height: 40)
-                                .overlay(
-                                    Image(systemName: "bell.fill")
-                                        .foregroundColor(.blue)
-                                        .font(.system(size: 18))
-                                )
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        .accessibilityLabel("Respond to ping from \(contact.name)")
-                    }
-                },
-                onTap: {
-                    showContactDetails = true
-                }
-            )
-            .sheet(isPresented: $showContactDetails) {
-                ContactDetailsSheet(
-                    contact: contact,
-                    store: store,
-                    isPresented: $showContactDetails
-                )
-            }
-        }
-    }
-}
 
 /// Extension to add partitioning to arrays
 extension Array {

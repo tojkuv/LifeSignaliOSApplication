@@ -1,5 +1,6 @@
 import SwiftUI
 import ComposableArchitecture
+import UIKit
 
 /// A SwiftUI view for displaying dependents using TCA
 struct DependentsView: View {
@@ -40,7 +41,7 @@ struct DependentsView: View {
                             } else {
                                 // Use the sorted dependents
                                 ForEach(sortedDependents(viewStore.dependents)) { dependent in
-                                    DependentCard(
+                                    DependentCardView(
                                         contact: dependent,
                                         store: store
                                     )
@@ -66,19 +67,13 @@ struct DependentsView: View {
                 }
             }
             .sheet(isPresented: $showQRScanner, onDismiss: {
-                if let code = pendingScannedCode {
-                    // Use the scanned code directly as the contact ID
+                if let qrCode = pendingScannedCode {
+                    // Use the scanned QR code to look up the contact ID via Firebase function
+                    // The QR code is not the contact ID itself
                     let sheet = AddContactSheet(
-                        contactId: code,
+                        qrCode: qrCode,
+                        store: store,
                         onAdd: { isResponder, isDependent in
-                            // Create a Contact object and add it
-                            let contact = Contact(
-                                id: code,
-                                name: "Unknown User", // Will be updated from Firestore
-                                isResponder: isResponder,
-                                isDependent: isDependent
-                            )
-                            viewStore.send(.addContact(contact))
                             showContactAddedAlert = true
                         },
                         onClose: { }
@@ -159,105 +154,7 @@ struct DependentsView: View {
     }
 }
 
-/// A SwiftUI view for displaying a dependent card using TCA
-struct DependentCard: View {
-    /// The contact to display
-    let contact: Contact
 
-    /// The store for the contacts feature
-    let store: StoreOf<ContactsFeature>
-
-    /// State for UI controls
-    @State private var showContactDetails = false
-
-    var statusColor: Color {
-        if contact.manualAlertActive {
-            return .red
-        } else if contact.isNonResponsive {
-            return .yellow
-        } else if contact.hasOutgoingPing {
-            return .blue
-        } else {
-            return .secondary
-        }
-    }
-
-    var statusText: String {
-        if contact.manualAlertActive {
-            if let alertTime = contact.manualAlertTimestamp {
-                return "Alert sent \(TimeManager.shared.formatTimeAgo(alertTime))"
-            }
-            return "Alert active"
-        } else if contact.isNonResponsive {
-            if let lastCheckIn = contact.lastCheckIn, let interval = contact.interval {
-                let expiration = lastCheckIn.addingTimeInterval(interval)
-                return "Expired \(TimeManager.shared.formatTimeAgo(expiration))"
-            }
-            return "Check-in expired"
-        } else if contact.hasOutgoingPing {
-            if let pingTime = contact.outgoingPingTimestamp {
-                return "Pinged \(TimeManager.shared.formatTimeAgo(pingTime))"
-            }
-            return "Ping sent"
-        } else {
-            return contact.formattedTimeRemaining
-        }
-    }
-
-    var body: some View {
-        WithViewStore(store, observe: { $0 }) { viewStore in
-            ContactCardView(
-                contact: contact,
-                statusColor: statusColor,
-                statusText: statusText,
-                context: .dependent,
-                trailingContent: {
-                    if !contact.hasOutgoingPing {
-                        Button(action: {
-                            viewStore.send(.pingDependent(id: contact.id))
-                        }) {
-                            Circle()
-                                .fill(Color(UIColor.systemBackground))
-                                .frame(width: 40, height: 40)
-                                .overlay(
-                                    Image(systemName: "bell")
-                                        .foregroundColor(.blue)
-                                        .font(.system(size: 18))
-                                )
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        .accessibilityLabel("Ping \(contact.name)")
-                    } else {
-                        Button(action: {
-                            viewStore.send(.clearPing(id: contact.id))
-                        }) {
-                            Circle()
-                                .fill(Color(UIColor.systemBackground))
-                                .frame(width: 40, height: 40)
-                                .overlay(
-                                    Image(systemName: "bell.fill")
-                                        .foregroundColor(.blue)
-                                        .font(.system(size: 18))
-                                )
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        .accessibilityLabel("Clear ping for \(contact.name)")
-                    }
-                },
-                onTap: {
-                    showContactDetails = true
-                }
-            )
-            .sheet(isPresented: $showContactDetails) {
-                ContactDetailsSheet(
-                    contact: contact,
-                    store: store,
-                    isPresented: $showContactDetails
-                )
-            }
-        }
-    }
-}
 
 #Preview {
     NavigationStack {

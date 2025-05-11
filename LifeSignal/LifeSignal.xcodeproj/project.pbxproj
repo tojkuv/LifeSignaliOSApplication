@@ -48,7 +48,6 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				App/Info.plist,
-				Core/README.md,
 				README.md,
 			);
 			target = 988BA1A42DCB131200024FD8 /* LifeSignal */;
