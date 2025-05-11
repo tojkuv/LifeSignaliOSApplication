@@ -87,9 +87,6 @@ struct DependentsView: View {
                 }
             }) {
                 QRScannerView(
-                    store: Store(initialState: QRScannerFeature.State()) {
-                        QRScannerFeature()
-                    },
                     onScanned: { result in
                         pendingScannedCode = result
                     }
