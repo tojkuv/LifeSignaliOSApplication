@@ -1,77 +1,78 @@
 import SwiftUI
-import ComposableArchitecture
 import UIKit
 
-/// A SwiftUI view for sharing a QR code using TCA
+/// A SwiftUI view for sharing a QR code
 struct QRCodeShareSheetView: View {
-    /// The store for the QR code share sheet feature
-    let store: StoreOf<QRCodeShareSheetFeature>
+    /// The name to display
+    let name: String
+
+    /// The QR code ID to share
+    let qrCodeId: String
 
     /// Callback for when the share sheet is dismissed
     let onDismiss: () -> Void
 
+    /// State for UI controls
+    @State private var showSystemShareSheet = false
+    @State private var qrCodeImage: UIImage? = nil
+
     var body: some View {
-        WithViewStore(store, observe: { $0 }) { viewStore in
-            NavigationView {
-                VStack(spacing: 20) {
-                    Text("Share Your QR Code")
-                        .font(.headline)
-                        .padding(.top)
+        NavigationView {
+            VStack(spacing: 20) {
+                Text("Share Your QR Code")
+                    .font(.headline)
+                    .padding(.top)
 
-                    Text("Let others scan this QR code to add you as a contact")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-
-                    QRCodeView(qrCodeId: viewStore.qrCodeId, size: 250)
-                        .padding()
-
-                    Text(viewStore.name)
-                        .font(.title3)
-                        .fontWeight(.bold)
-
-                    Button(action: {
-                        viewStore.send(.generateQRCode)
-                        viewStore.send(.showSystemShareSheet(true))
-                    }) {
-                        Label("Share", systemImage: "square.and.arrow.up")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                            .padding()
-                            .frame(maxWidth: .infinity)
-                            .background(Color.blue)
-                            .cornerRadius(8)
-                    }
+                Text("Let others scan this QR code to add you as a contact")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
                     .padding(.horizontal)
 
-                    Spacer()
+                QRCodeView(qrCodeId: qrCodeId, size: 250)
+                    .padding()
+
+                Text(name)
+                    .font(.title3)
+                    .fontWeight(.bold)
+
+                Button(action: {
+                    // Generate QR code image
+                    qrCodeImage = QRCodeUtilities.generateQRCode(from: qrCodeId, size: 1024)
+                    showSystemShareSheet = true
+                }) {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color.blue)
+                        .cornerRadius(8)
                 }
-                .padding()
-                .navigationBarItems(trailing: Button("Done") {
-                    viewStore.send(.dismiss)
-                    onDismiss()
-                })
-                .background(
-                    ShareSheetPresenter(
-                        isPresented: viewStore.binding(
-                            get: \.showSystemShareSheet,
-                            send: QRCodeShareSheetFeature.Action.showSystemShareSheet
-                        ),
-                        content: {
-                            if let image = viewStore.qrCodeImage {
-                                return [
-                                    QRCodeActivityItemView(
-                                        image: image,
-                                        title: "\(viewStore.name)'s LifeSignal QR Code"
-                                    )
-                                ]
-                            }
-                            return []
-                        }
-                    )
-                )
+                .padding(.horizontal)
+
+                Spacer()
             }
+            .padding()
+            .navigationBarItems(trailing: Button("Done") {
+                onDismiss()
+            })
+            .background(
+                ShareSheetPresenter(
+                    isPresented: $showSystemShareSheet,
+                    content: {
+                        if let image = qrCodeImage {
+                            return [
+                                QRCodeActivityItemView(
+                                    image: image,
+                                    title: "\(name)'s LifeSignal QR Code"
+                                )
+                            ]
+                        }
+                        return []
+                    }
+                )
+            )
         }
     }
 }
@@ -104,21 +105,21 @@ struct ShareSheetPresenter: UIViewControllerRepresentable {
     }
 }
 
-/// A SwiftUI view for sharing a QR code using TCA (convenience initializer)
-extension QRCodeShareSheetView {
-    /// Initialize with QR code share sheet data
-    /// - Parameters:
-    ///   - name: The name to display
-    ///   - qrCodeId: The QR code ID to share
-    ///   - onDismiss: Callback for when the share sheet is dismissed
-    init(name: String, qrCodeId: String, onDismiss: @escaping () -> Void) {
-        self.store = Store(initialState: QRCodeShareSheetFeature.State(
-            name: name,
-            qrCodeId: qrCodeId
-        )) {
-            QRCodeShareSheetFeature()
-        }
-        self.onDismiss = onDismiss
+/// A custom activity item for sharing QR codes
+struct QRCodeActivityItemView: UIActivityItemProvider {
+    let image: UIImage
+    let title: String
+
+    override var item: Any {
+        return image
+    }
+
+    override func activityViewController(_ activityViewController: UIActivityViewController, itemForActivityType activityType: UIActivity.ActivityType?) -> Any? {
+        return image
+    }
+
+    override func activityViewController(_ activityViewController: UIActivityViewController, subjectForActivityType activityType: UIActivity.ActivityType?) -> String {
+        return title
     }
 }
 

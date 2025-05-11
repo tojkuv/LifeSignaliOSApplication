@@ -1,6 +1,5 @@
 import SwiftUI
 import ComposableArchitecture
-import CoreImage.CIFilterBuiltins
 import UIKit
 import Combine
 
@@ -16,8 +15,6 @@ struct HomeView: View {
     @State private var showCheckInConfirmation = false
     @State private var showCameraDeniedAlert = false
     @State private var showShareSheet = false
-    @State private var isGeneratingImage = false
-    @State private var qrCodeImage: UIImage? = nil
     @State private var pendingScannedCode: String? = nil
     @State private var newContact: Contact? = nil
 
@@ -106,9 +103,13 @@ struct HomeView: View {
                 )
             }
             .sheet(isPresented: $showShareSheet) {
-                if let image = qrCodeImage {
-                    ShareSheet(items: [image])
-                }
+                QRCodeShareSheetView(
+                    name: user?.name ?? "",
+                    qrCodeId: user?.qrCodeId ?? "",
+                    onDismiss: {
+                        showShareSheet = false
+                    }
+                )
             }
         }
     }
@@ -122,16 +123,7 @@ struct HomeView: View {
                 .font(.headline)
                 .padding(.top, 16)
 
-            if isGeneratingImage {
-                ProgressView()
-                    .frame(width: 200, height: 200)
-            } else {
-                Image(uiImage: generateQRCode(from: user.qrCodeId))
-                    .interpolation(.none)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 200, height: 200)
-            }
+            QRCodeView(qrCodeId: user.qrCodeId, size: 200)
 
             Text("Scan this code to add \(user.name) as a contact")
                 .font(.caption)
@@ -140,10 +132,6 @@ struct HomeView: View {
                 .padding(.horizontal)
 
             Button(action: {
-                isGeneratingImage = true
-                // Generate QR code image
-                qrCodeImage = generateQRCode(from: user.qrCodeId)
-                isGeneratingImage = false
                 showShareSheet = true
             }) {
                 Label("Share QR Code", systemImage: "square.and.arrow.up")
@@ -262,24 +250,7 @@ struct HomeView: View {
         }
     }
 
-    /// Generate a QR code image from a string
-    /// - Parameter string: The string to encode in the QR code
-    /// - Returns: A UIImage containing the QR code
-    private func generateQRCode(from string: String) -> UIImage {
-        let context = CIContext()
-        let filter = CIFilter.qrCodeGenerator()
 
-        filter.message = Data(string.utf8)
-        filter.correctionLevel = "M"
-
-        if let outputImage = filter.outputImage {
-            if let cgImage = context.createCGImage(outputImage, from: outputImage.extent) {
-                return UIImage(cgImage: cgImage)
-            }
-        }
-
-        return UIImage(systemName: "qrcode") ?? UIImage()
-    }
 
     /// Format a time interval for display
     /// - Parameter interval: The time interval in seconds

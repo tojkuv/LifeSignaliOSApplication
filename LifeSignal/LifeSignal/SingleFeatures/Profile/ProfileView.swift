@@ -47,13 +47,13 @@ struct ProfileView: View {
                             }
                             .padding(.top, 20)
 
-                            // Description Setting Card
+                            // Emergency Note Setting Card
                             Button(action: {
-                                editingDescription = viewStore.note
+                                editingDescription = viewStore.emergencyNote
                                 showEditDescriptionSheet = true
                             }) {
                                 HStack(alignment: .top) {
-                                    Text(viewStore.note.isEmpty ? "This is simply a note for contacts." : viewStore.note)
+                                    Text(viewStore.emergencyNote.isEmpty ? "This is your emergency note for contacts." : viewStore.emergencyNote)
                                         .font(.body)
                                         .foregroundColor(.primary)
                                         .multilineTextAlignment(.leading)
@@ -200,7 +200,7 @@ struct ProfileView: View {
                                 trailing: Button("Save") {
                                     viewStore.send(.updateProfile(
                                         name: editingName,
-                                        note: viewStore.note
+                                        emergencyNote: viewStore.emergencyNote
                                     ))
                                     showEditNameSheet = false
                                 }
@@ -242,11 +242,11 @@ struct ProfileView: View {
                                 trailing: Button("Save") {
                                     viewStore.send(.updateProfile(
                                         name: viewStore.name,
-                                        note: editingDescription
+                                        emergencyNote: editingDescription
                                     ))
                                     showEditDescriptionSheet = false
                                 }
-                                .disabled(editingDescription == viewStore.note)
+                                .disabled(editingDescription == viewStore.emergencyNote)
                             )
                         }
                         .presentationDetents([.medium])
@@ -384,7 +384,7 @@ struct ProfileView: View {
             store: Store(initialState: UserFeature.State(
                 name: "John Doe",
                 phoneNumber: "+1 (555) 123-4567",
-                note: "Emergency contact information",
+                emergencyNote: "Emergency contact information",
                 qrCodeId: "user123"
             )) {
                 UserFeature()

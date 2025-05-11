@@ -262,6 +262,8 @@ struct QRScannerViewControllerRepresentable: UIViewControllerRepresentable {
     }
 }
 
+
+
 #Preview {
     QRScannerView(
         onScanned: { _ in }
