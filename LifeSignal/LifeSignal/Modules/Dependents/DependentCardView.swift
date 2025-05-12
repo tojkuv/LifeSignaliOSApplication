@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import LifeSignal
+import ComposableArchitecture
 
 /// A SwiftUI view for displaying a dependent card
 struct DependentCardView: View {
@@ -53,12 +54,15 @@ struct DependentCardView: View {
         }
     }
 
+    /// Time formatter dependency
+    @Dependency(\.timeFormatter) private var timeFormatter
+
     /// Get the status text for the dependent
     private var statusText: String {
         if dependent.isNonResponsive {
             if let lastCheckedIn = dependent.lastCheckedIn, let interval = dependent.checkInInterval {
                 let expiration = lastCheckedIn.addingTimeInterval(interval)
-                return "Expired \(TimeManager.shared.formatTimeAgo(expiration))"
+                return "Expired \(timeFormatter.formatTimeAgo(expiration))"
             }
             return "Check-in expired"
         } else if dependent.hasOutgoingPing {

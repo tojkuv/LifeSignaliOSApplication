@@ -151,8 +151,11 @@ extension ContactDetailsSheet {
 
         // Set up a task to handle the dismiss action
         Task {
-            for await _ in detailsStore.scope(state: \.isActive, action: \.self).publisher.filter({ !$0 }) {
-                onDismiss()
+            for await isActive in detailsStore.publisher.map(\.isActive).values {
+                if !isActive {
+                    onDismiss()
+                    break
+                }
             }
         }
     }

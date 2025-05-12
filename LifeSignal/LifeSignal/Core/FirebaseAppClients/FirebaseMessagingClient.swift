@@ -9,16 +9,16 @@ import OSLog
 @DependencyClient
 struct FirebaseMessagingClient: Sendable {
     /// Set up the messaging delegate
-    var setDelegate: @Sendable () -> Void
+    var setDelegate: @Sendable () -> Void = {}
 
     /// Get the current FCM token
-    var getFCMToken: @Sendable () -> String?
+    var getFCMToken: @Sendable () -> String? = { nil }
 
     /// Register for token updates
-    var registerForTokenUpdates: @Sendable (@Sendable (String) -> Void) -> Void
+    var registerForTokenUpdates: @Sendable (@Sendable @escaping (String) -> Void) -> Void = { _ in }
 
     /// Unregister from token updates
-    var unregisterFromTokenUpdates: @Sendable () -> Void
+    var unregisterFromTokenUpdates: @Sendable () -> Void = {}
 }
 
 // MARK: - Live Implementation
@@ -60,7 +60,7 @@ extension FirebaseMessagingClient: DependencyKey {
     )
 
     // Private handler class to implement the delegate protocol
-    private final class MessagingDelegateHandler: NSObject, MessagingDelegate {
+    private final class MessagingDelegateHandler: NSObject, MessagingDelegate, @unchecked Sendable {
         static let shared = MessagingDelegateHandler()
 
         private var callbacks: [@Sendable (String) -> Void] = []
@@ -70,7 +70,7 @@ extension FirebaseMessagingClient: DependencyKey {
             lock.lock()
             defer { lock.unlock() }
             callbacks.append(callback)
-            FirebaseLogger.messaging.debug("Added FCM token callback, total callbacks: \(callbacks.count)")
+            FirebaseLogger.messaging.debug("Added FCM token callback, total callbacks: \(self.callbacks.count)")
         }
 
         func unregisterCallbacks() {

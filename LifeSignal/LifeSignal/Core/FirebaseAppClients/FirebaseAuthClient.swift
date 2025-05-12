@@ -9,28 +9,32 @@ import OSLog
 @DependencyClient
 struct FirebaseAuthClient: Sendable {
     /// Get the current authenticated user
-    var currentUser: @Sendable () async -> User?
+    var currentUser: @Sendable () async -> User? = { nil }
 
     /// Sign out the current user
-    var signOut: @Sendable () async throws -> Void
+    var signOut: @Sendable () async throws -> Void = { }
 
     /// Sign in with a credential
-    var signIn: @Sendable (_ credential: AuthCredential) async throws -> AuthDataResult
+    var signIn: @Sendable (_ credential: AuthCredential) async throws -> AuthDataResult = { _ in
+        fatalError("Default implementation not provided")
+    }
 
     /// Create a phone auth credential
-    var phoneAuthCredential: @Sendable (_ verificationID: String, _ verificationCode: String) -> AuthCredential
+    var phoneAuthCredential: @Sendable (_ verificationID: String, _ verificationCode: String) -> AuthCredential = { _, _ in
+        fatalError("Default implementation not provided")
+    }
 
     /// Get the current user's ID
-    var currentUserId: @Sendable () async -> String?
+    var currentUserId: @Sendable () async -> String? = { nil }
 
     /// Send verification code to phone number
-    var verifyPhoneNumber: @Sendable (_ phoneNumber: String) async throws -> String
+    var verifyPhoneNumber: @Sendable (_ phoneNumber: String) async throws -> String = { _ in "" }
 
     /// Update the phone number of the current user
-    var updatePhoneNumber: @Sendable (_ credential: AuthCredential) async throws -> Void
+    var updatePhoneNumber: @Sendable (_ credential: AuthCredential) async throws -> Void = { _ in }
 
     /// Check if user is authenticated
-    var isAuthenticated: @Sendable () async -> Bool
+    var isAuthenticated: @Sendable () async -> Bool = { false }
 }
 
 // MARK: - Live Implementation
@@ -126,12 +130,8 @@ extension FirebaseAuthClient {
             fatalError("Mock not implemented")
         },
         currentUserId: @escaping () async -> String? = { nil },
-        verifyPhoneNumber: @escaping (_ phoneNumber: String) async throws -> String = { _ in
-            fatalError("Mock not implemented")
-        },
-        updatePhoneNumber: @escaping (_ credential: AuthCredential) async throws -> Void = { _ in
-            fatalError("Mock not implemented")
-        },
+        verifyPhoneNumber: @escaping (_ phoneNumber: String) async throws -> String = { _ in "" },
+        updatePhoneNumber: @escaping (_ credential: AuthCredential) async throws -> Void = { _ in },
         isAuthenticated: @escaping () async -> Bool = { false }
     ) -> Self {
         Self(
@@ -145,25 +145,23 @@ extension FirebaseAuthClient {
             isAuthenticated: isAuthenticated
         )
     }
+}
 
+extension FirebaseAuthClient: TestDependencyKey {
     /// A test implementation that fails with an unimplemented error
     static let testValue = Self(
-        currentUser: XCTUnimplemented("\(Self.self).currentUser", placeholder: nil),
-        signOut: XCTUnimplemented("\(Self.self).signOut"),
-        signIn: XCTUnimplemented("\(Self.self).signIn", placeholder: { _ in
+        currentUser: unimplemented("\(Self.self).currentUser", placeholder: nil),
+        signOut: unimplemented("\(Self.self).signOut"),
+        signIn: unimplemented("\(Self.self).signIn", placeholder: { _ in
             fatalError("Unimplemented: \(Self.self).signIn")
         }),
-        phoneAuthCredential: XCTUnimplemented("\(Self.self).phoneAuthCredential", placeholder: { _, _ in
+        phoneAuthCredential: unimplemented("\(Self.self).phoneAuthCredential", placeholder: { _, _ in
             fatalError("Unimplemented: \(Self.self).phoneAuthCredential")
         }),
-        currentUserId: XCTUnimplemented("\(Self.self).currentUserId", placeholder: nil),
-        verifyPhoneNumber: XCTUnimplemented("\(Self.self).verifyPhoneNumber", placeholder: { _ in
-            fatalError("Unimplemented: \(Self.self).verifyPhoneNumber")
-        }),
-        updatePhoneNumber: XCTUnimplemented("\(Self.self).updatePhoneNumber", placeholder: { _ in
-            fatalError("Unimplemented: \(Self.self).updatePhoneNumber")
-        }),
-        isAuthenticated: XCTUnimplemented("\(Self.self).isAuthenticated", placeholder: false)
+        currentUserId: unimplemented("\(Self.self).currentUserId", placeholder: nil),
+        verifyPhoneNumber: unimplemented("\(Self.self).verifyPhoneNumber", placeholder: { _ in "" }),
+        updatePhoneNumber: unimplemented("\(Self.self).updatePhoneNumber"),
+        isAuthenticated: unimplemented("\(Self.self).isAuthenticated", placeholder: false)
     )
 }
 

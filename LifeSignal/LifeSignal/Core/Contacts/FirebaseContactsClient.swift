@@ -5,30 +5,36 @@ import FirebaseAuth
 import FirebaseFunctions
 import XCTestDynamicOverlay
 import OSLog
+import Dependencies
 
 /// A client for interacting with Firebase contacts data
 @DependencyClient
 struct FirebaseContactsClient: Sendable {
     /// Stream contacts collection updates
-    var streamContacts: @Sendable (userId: String) -> AsyncStream<TaskResult<[ContactData]>>
+    var streamContacts: @Sendable (_ userId: String) -> AsyncStream<TaskResult<[ContactData]>> = { _ in
+        AsyncStream { continuation in
+            continuation.yield(.success([]))
+            continuation.finish()
+        }
+    }
 
     /// Get contacts collection once
-    var getContacts: @Sendable (userId: String) async throws -> [ContactData]
+    var getContacts: @Sendable (_ userId: String) async throws -> [ContactData] = { _ in [] }
 
     /// Add a new contact
-    var addContact: @Sendable (userId: String, contactId: String, contactData: [String: Any]) async throws -> Void
+    var addContact: @Sendable (_ userId: String, _ contactId: String, _ contactData: [String: Any]) async throws -> Void = { _, _, _ in }
 
     /// Update a contact
-    var updateContact: @Sendable (userId: String, contactId: String, fields: [String: Any]) async throws -> Void
+    var updateContact: @Sendable (_ userId: String, _ contactId: String, _ fields: [String: Any]) async throws -> Void = { _, _, _ in }
 
     /// Delete a contact
-    var deleteContact: @Sendable (userId: String, contactId: String) async throws -> Void
+    var deleteContact: @Sendable (_ userId: String, _ contactId: String) async throws -> Void = { _, _ in }
 
     /// Look up a user by QR code
-    var lookupUserByQRCode: @Sendable (qrCode: String) async throws -> (id: String, name: String, phone: String, emergencyNote: String)
+    var lookupUserByQRCode: @Sendable (_ qrCode: String) async throws -> (id: String, name: String, phone: String, emergencyNote: String) = { _ in ("", "", "", "") }
 
     /// Add a contact relation using Firebase Functions
-    var addContactRelation: @Sendable (userId: String, contactId: String, isResponder: Bool, isDependent: Bool) async throws -> Void
+    var addContactRelation: @Sendable (_ userId: String, _ contactId: String, _ isResponder: Bool, _ isDependent: Bool) async throws -> Void = { _, _, _, _ in }
 }
 
 // MARK: - Live Implementation
@@ -60,7 +66,7 @@ extension FirebaseContactsClient: DependencyKey {
                         }
 
                         // Create contact from the data
-                        if let contact = ContactData.fromFirestore(contactData, contactId: contactId) {
+                        if let contact = ContactData.fromFirestore(contactData, id: contactId) {
                             // Update with user data
                             var updatedContact = contact
                             updatedContact.name = contactUserData[FirestoreConstants.UserFields.name] as? String ?? "Unknown User"
@@ -113,7 +119,7 @@ extension FirebaseContactsClient: DependencyKey {
                     }
 
                     // Create contact from the data
-                    if let contact = ContactData.fromFirestore(contactData, contactId: contactId) {
+                    if let contact = ContactData.fromFirestore(contactData, id: contactId) {
                         // Update with user data
                         var updatedContact = contact
                         updatedContact.name = contactUserData[FirestoreConstants.UserFields.name] as? String ?? "Unknown User"
@@ -237,16 +243,21 @@ extension FirebaseContactsClient: DependencyKey {
 
 // MARK: - Test Implementation
 
-extension FirebaseContactsClient {
+extension FirebaseContactsClient: TestDependencyKey {
     /// A test implementation that fails with an unimplemented error
     static let testValue = Self(
-        streamContacts: XCTUnimplemented("\(Self.self).streamContacts", placeholder: { _ in AsyncStream { _ in } }),
-        getContacts: XCTUnimplemented("\(Self.self).getContacts", placeholder: { _ in [] }),
-        addContact: XCTUnimplemented("\(Self.self).addContact"),
-        updateContact: XCTUnimplemented("\(Self.self).updateContact"),
-        deleteContact: XCTUnimplemented("\(Self.self).deleteContact"),
-        lookupUserByQRCode: XCTUnimplemented("\(Self.self).lookupUserByQRCode", placeholder: { _ in ("", "", "", "") }),
-        addContactRelation: XCTUnimplemented("\(Self.self).addContactRelation")
+        streamContacts: unimplemented("\(Self.self).streamContacts", placeholder: { _ in
+            AsyncStream { continuation in
+                continuation.yield(.success([]))
+                continuation.finish()
+            }
+        }),
+        getContacts: unimplemented("\(Self.self).getContacts", placeholder: { _ in [] }),
+        addContact: unimplemented("\(Self.self).addContact"),
+        updateContact: unimplemented("\(Self.self).updateContact"),
+        deleteContact: unimplemented("\(Self.self).deleteContact"),
+        lookupUserByQRCode: unimplemented("\(Self.self).lookupUserByQRCode", placeholder: { _ in ("", "", "", "") }),
+        addContactRelation: unimplemented("\(Self.self).addContactRelation")
     )
 
     /// A mock implementation that returns predefined values for testing

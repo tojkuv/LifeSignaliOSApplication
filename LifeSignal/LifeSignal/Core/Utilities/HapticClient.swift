@@ -5,28 +5,28 @@ import ComposableArchitecture
 @DependencyClient
 struct HapticClient: Sendable {
     /// Trigger a light impact haptic feedback
-    var lightImpact: @Sendable () -> Void
-    
+    var lightImpact: @Sendable () -> Void = {}
+
     /// Trigger a medium impact haptic feedback
-    var mediumImpact: @Sendable () -> Void
-    
+    var mediumImpact: @Sendable () -> Void = {}
+
     /// Trigger a heavy impact haptic feedback
-    var heavyImpact: @Sendable () -> Void
-    
+    var heavyImpact: @Sendable () -> Void = {}
+
     /// Trigger a selection haptic feedback
-    var selectionFeedback: @Sendable () -> Void
-    
+    var selectionFeedback: @Sendable () -> Void = {}
+
     /// Trigger a notification haptic feedback
-    var notificationFeedback: @Sendable (UINotificationFeedbackGenerator.FeedbackType) -> Void
-    
+    var notificationFeedback: @Sendable (_ type: UINotificationFeedbackGenerator.FeedbackType) -> Void = { _ in }
+
     /// Trigger a success notification haptic feedback
-    var success: @Sendable () -> Void
-    
+    var success: @Sendable () -> Void = {}
+
     /// Trigger a warning notification haptic feedback
-    var warning: @Sendable () -> Void
-    
+    var warning: @Sendable () -> Void = {}
+
     /// Trigger an error notification haptic feedback
-    var error: @Sendable () -> Void
+    var error: @Sendable () -> Void = {}
 }
 
 // MARK: - Live Implementation
@@ -40,49 +40,49 @@ extension HapticClient {
                 generator.impactOccurred()
             }
         },
-        
+
         mediumImpact: {
             Task { @MainActor in
                 let generator = UIImpactFeedbackGenerator(style: .medium)
                 generator.impactOccurred()
             }
         },
-        
+
         heavyImpact: {
             Task { @MainActor in
                 let generator = UIImpactFeedbackGenerator(style: .heavy)
                 generator.impactOccurred()
             }
         },
-        
+
         selectionFeedback: {
             Task { @MainActor in
                 let generator = UISelectionFeedbackGenerator()
                 generator.selectionChanged()
             }
         },
-        
+
         notificationFeedback: { type in
             Task { @MainActor in
                 let generator = UINotificationFeedbackGenerator()
                 generator.notificationOccurred(type)
             }
         },
-        
+
         success: {
             Task { @MainActor in
                 let generator = UINotificationFeedbackGenerator()
                 generator.notificationOccurred(.success)
             }
         },
-        
+
         warning: {
             Task { @MainActor in
                 let generator = UINotificationFeedbackGenerator()
                 generator.notificationOccurred(.warning)
             }
         },
-        
+
         error: {
             Task { @MainActor in
                 let generator = UINotificationFeedbackGenerator()
@@ -123,7 +123,7 @@ extension HapticClient: DependencyKey {
     static var liveValue: HapticClient {
         return .live
     }
-    
+
     /// The test value of the haptic client
     static var testValue: HapticClient {
         return .mock

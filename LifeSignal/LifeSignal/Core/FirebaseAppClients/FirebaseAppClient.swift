@@ -8,27 +8,28 @@ import UserNotifications
 import XCTestDynamicOverlay
 import Dependencies
 import OSLog
+import UIKit
 
 /// A client for handling Firebase app lifecycle
 @DependencyClient
 struct FirebaseAppClient: Sendable {
     /// Configure Firebase
-    var configure: @Sendable () -> Void
+    var configure: @Sendable () -> Void = { }
 
     /// Set up Firebase Messaging for push notifications
-    var setupMessaging: @Sendable () async -> Void
+    var setupMessaging: @Sendable () async -> Void = { }
 
     /// Handle open URL
-    var handleOpenURL: @Sendable (URL) -> Bool
+    var handleOpenURL: @Sendable (URL) -> Bool = { _ in false }
 
     /// Add auth state listener
-    var addAuthStateListener: @Sendable (@escaping (Auth, User?) -> Void) -> NSObjectProtocol
+    var addAuthStateListener: @Sendable (@escaping (Auth, User?) -> Void) -> NSObjectProtocol = { _ in NSObject() }
 
     /// Remove auth state listener
-    var removeAuthStateListener: @Sendable (NSObjectProtocol) -> Void
+    var removeAuthStateListener: @Sendable (NSObjectProtocol) -> Void = { _ in }
 
     /// Get Firebase initialization status as a string
-    var getInitializationStatus: @Sendable () -> String
+    var getInitializationStatus: @Sendable () -> String = { "Firebase not initialized" }
 }
 
 extension FirebaseAppClient: DependencyKey {
@@ -141,15 +142,17 @@ extension FirebaseAppClient: DependencyKey {
             getInitializationStatus: getInitializationStatus
         )
     }
+}
 
+extension FirebaseAppClient: TestDependencyKey {
     /// A test implementation that fails with an unimplemented error
     static let testValue = Self(
-        configure: XCTUnimplemented("\(Self.self).configure"),
-        setupMessaging: XCTUnimplemented("\(Self.self).setupMessaging"),
-        handleOpenURL: XCTUnimplemented("\(Self.self).handleOpenURL", placeholder: false),
-        addAuthStateListener: XCTUnimplemented("\(Self.self).addAuthStateListener", placeholder: NSObject()),
-        removeAuthStateListener: XCTUnimplemented("\(Self.self).removeAuthStateListener"),
-        getInitializationStatus: XCTUnimplemented("\(Self.self).getInitializationStatus", placeholder: "Firebase test initialized")
+        configure: unimplemented("\(Self.self).configure"),
+        setupMessaging: unimplemented("\(Self.self).setupMessaging"),
+        handleOpenURL: unimplemented("\(Self.self).handleOpenURL", placeholder: false),
+        addAuthStateListener: unimplemented("\(Self.self).addAuthStateListener", placeholder: NSObject()),
+        removeAuthStateListener: unimplemented("\(Self.self).removeAuthStateListener"),
+        getInitializationStatus: unimplemented("\(Self.self).getInitializationStatus", placeholder: "Firebase test initialized")
     )
 }
 

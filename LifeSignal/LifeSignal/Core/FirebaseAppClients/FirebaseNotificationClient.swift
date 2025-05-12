@@ -6,42 +6,43 @@ import UserNotifications
 import XCTestDynamicOverlay
 import Dependencies
 import OSLog
+import UIKit
 
 /// A client for handling Firebase notifications
 @DependencyClient
 struct FirebaseNotificationClient: Sendable {
     /// Register for remote notifications
-    var registerForRemoteNotifications: @Sendable () async -> Void
+    var registerForRemoteNotifications: @Sendable () async -> Void = { }
 
     /// Handle device token registration
-    var handleDeviceToken: @Sendable (Data) async -> Void
+    var handleDeviceToken: @Sendable (Data) async -> Void = { _ in }
 
     /// Handle remote notification
-    var handleRemoteNotification: @Sendable ([AnyHashable: Any]) async -> UIBackgroundFetchResult
+    var handleRemoteNotification: @Sendable ([AnyHashable: Any]) async -> UIBackgroundFetchResult = { _ in .noData }
 
     /// Request notification authorization
-    var requestAuthorization: @Sendable () async throws -> Bool
+    var requestAuthorization: @Sendable () async throws -> Bool = { false }
 
     /// Get current authorization status
-    var getAuthorizationStatus: @Sendable () async -> UNAuthorizationStatus
+    var getAuthorizationStatus: @Sendable () async -> UNAuthorizationStatus = { .notDetermined }
 
     /// Set notification delegate
-    var setNotificationDelegate: @Sendable (UNUserNotificationCenterDelegate) -> Void
+    var setNotificationDelegate: @Sendable (UNUserNotificationCenterDelegate) -> Void = { _ in }
 
     /// Show a local notification
-    var showLocalNotification: @Sendable (title: String, body: String, userInfo: [String: Any]) async throws -> Bool
+    var showLocalNotification: @Sendable (_ title: String, _ body: String, _ userInfo: [String: Any]) async throws -> Bool = { _, _, _ in false }
 
     /// Schedule a check-in reminder notification
-    var scheduleCheckInReminder: @Sendable (expirationDate: Date, minutesBefore: Int) async throws -> String
+    var scheduleCheckInReminder: @Sendable (_ expirationDate: Date, _ minutesBefore: Int) async throws -> String = { _, _ in "" }
 
     /// Cancel scheduled notifications
-    var cancelScheduledNotifications: @Sendable (identifiers: [String]) async -> Void
+    var cancelScheduledNotifications: @Sendable (_ identifiers: [String]) async -> Void = { _ in }
 
     /// Send a manual alert notification
-    var sendManualAlertNotification: @Sendable (userName: String) async throws -> Bool
+    var sendManualAlertNotification: @Sendable (_ userName: String) async throws -> Bool = { _ in false }
 
     /// Clear a manual alert notification
-    var clearManualAlertNotification: @Sendable (userName: String) async throws -> Bool
+    var clearManualAlertNotification: @Sendable (_ userName: String) async throws -> Bool = { _ in false }
 }
 
 extension FirebaseNotificationClient: DependencyKey {
@@ -314,20 +315,22 @@ extension FirebaseNotificationClient: DependencyKey {
             clearManualAlertNotification: clearManualAlertNotification
         )
     }
+}
 
+extension FirebaseNotificationClient: TestDependencyKey {
     /// A test implementation that fails with an unimplemented error
     static let testValue = Self(
-        registerForRemoteNotifications: XCTUnimplemented("\(Self.self).registerForRemoteNotifications"),
-        handleDeviceToken: XCTUnimplemented("\(Self.self).handleDeviceToken"),
-        handleRemoteNotification: XCTUnimplemented("\(Self.self).handleRemoteNotification", placeholder: .noData),
-        requestAuthorization: XCTUnimplemented("\(Self.self).requestAuthorization", placeholder: false),
-        getAuthorizationStatus: XCTUnimplemented("\(Self.self).getAuthorizationStatus", placeholder: .notDetermined),
-        setNotificationDelegate: XCTUnimplemented("\(Self.self).setNotificationDelegate"),
-        showLocalNotification: XCTUnimplemented("\(Self.self).showLocalNotification", placeholder: true),
-        scheduleCheckInReminder: XCTUnimplemented("\(Self.self).scheduleCheckInReminder", placeholder: "test-id"),
-        cancelScheduledNotifications: XCTUnimplemented("\(Self.self).cancelScheduledNotifications"),
-        sendManualAlertNotification: XCTUnimplemented("\(Self.self).sendManualAlertNotification", placeholder: true),
-        clearManualAlertNotification: XCTUnimplemented("\(Self.self).clearManualAlertNotification", placeholder: true)
+        registerForRemoteNotifications: unimplemented("\(Self.self).registerForRemoteNotifications"),
+        handleDeviceToken: unimplemented("\(Self.self).handleDeviceToken"),
+        handleRemoteNotification: unimplemented("\(Self.self).handleRemoteNotification", placeholder: .noData),
+        requestAuthorization: unimplemented("\(Self.self).requestAuthorization", placeholder: false),
+        getAuthorizationStatus: unimplemented("\(Self.self).getAuthorizationStatus", placeholder: .notDetermined),
+        setNotificationDelegate: unimplemented("\(Self.self).setNotificationDelegate"),
+        showLocalNotification: unimplemented("\(Self.self).showLocalNotification", placeholder: true),
+        scheduleCheckInReminder: unimplemented("\(Self.self).scheduleCheckInReminder", placeholder: "test-id"),
+        cancelScheduledNotifications: unimplemented("\(Self.self).cancelScheduledNotifications"),
+        sendManualAlertNotification: unimplemented("\(Self.self).sendManualAlertNotification", placeholder: true),
+        clearManualAlertNotification: unimplemented("\(Self.self).clearManualAlertNotification", placeholder: true)
     )
 }
 

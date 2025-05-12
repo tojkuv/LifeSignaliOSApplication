@@ -7,16 +7,16 @@ import ComposableArchitecture
 @DependencyClient
 struct DeviceClient: Sendable {
     /// Get the current device model
-    var getDeviceModel: @Sendable () -> DeviceModel
-    
+    var getDeviceModel: @Sendable () async -> DeviceModel = { .unknown }
+
     /// Get the appropriate test phone number for the current device
-    var getTestPhoneNumber: @Sendable () -> String
-    
+    var getTestPhoneNumber: @Sendable () async -> String = { "+11234567890" }
+
     /// Get a human-readable device name for display
-    var getDeviceDisplayName: @Sendable () -> String
-    
+    var getDeviceDisplayName: @Sendable () async -> String = { "Unknown Device" }
+
     /// Get the device identifier (e.g., "iPhone13,1")
-    var getDeviceIdentifier: @Sendable () -> String
+    var getDeviceIdentifier: @Sendable () async -> String = { "unknown" }
 }
 
 // MARK: - Device Model Enum
@@ -86,9 +86,22 @@ enum DeviceModel: String, Sendable {
 
 extension DeviceClient {
     /// The live implementation of the device client
-    static let live = Self(
-        getDeviceModel: {
-            let identifier = getDeviceIdentifier()
+    static let live = {
+        // Helper function to get device identifier
+        @Sendable func getDeviceIdentifierImpl() -> String {
+            var systemInfo = utsname()
+            uname(&systemInfo)
+            let machineMirror = Mirror(reflecting: systemInfo.machine)
+            let identifier = machineMirror.children.reduce("") { identifier, element in
+                guard let value = element.value as? Int8, value != 0 else { return identifier }
+                return identifier + String(UnicodeScalar(UInt8(value)))
+            }
+            return identifier
+        }
+
+        // Helper function to determine device model
+        @Sendable func getDeviceModelImpl() async -> DeviceModel {
+            let identifier = getDeviceIdentifierImpl()
 
             // Check for simulator
             #if targetEnvironment(simulator)
@@ -121,7 +134,7 @@ extension DeviceClient {
                 }
 
                 // Fallback to screen size for simulator
-                let screenSize = UIScreen.main.bounds.size
+                let screenSize = await MainActor.run { UIScreen.main.bounds.size }
                 let minDimension = min(screenSize.width, screenSize.height)
                 let maxDimension = max(screenSize.width, screenSize.height)
 
@@ -167,8 +180,9 @@ extension DeviceClient {
                 if identifier.contains("iPhone13,1") { return .iPhone13Mini }
 
                 // Fallback based on screen size for physical devices
-                if UIDevice.current.userInterfaceIdiom == .phone {
-                    let screenSize = UIScreen.main.bounds.size
+                let userInterfaceIdiom = await MainActor.run { UIDevice.current.userInterfaceIdiom }
+                if userInterfaceIdiom == .phone {
+                    let screenSize = await MainActor.run { UIScreen.main.bounds.size }
                     let minDimension = min(screenSize.width, screenSize.height)
                     let maxDimension = max(screenSize.width, screenSize.height)
 
@@ -185,61 +199,46 @@ extension DeviceClient {
             #endif
 
             return .unknown
-        },
-        
-        getTestPhoneNumber: {
-            let deviceModel = getDeviceModel()
-            return deviceModel.testPhoneNumber
-        },
-        
-        getDeviceDisplayName: {
+        }
+
+        // Create a sendable function for device display name
+        @Sendable func getDeviceDisplayNameImpl() async -> String {
             #if targetEnvironment(simulator)
                 let simulatorModel = ProcessInfo().environment["SIMULATOR_DEVICE_NAME"] ?? "Simulator"
                 return "Simulator (\(simulatorModel))"
             #else
-                let deviceName = UIDevice.current.name
-                let modelName = UIDevice.current.model
-                let systemVersion = UIDevice.current.systemVersion
+                let deviceInfo = await MainActor.run {
+                    let deviceName = UIDevice.current.name
+                    let modelName = UIDevice.current.model
+                    let systemVersion = UIDevice.current.systemVersion
+                    let screenSize = UIScreen.main.bounds.size
+                    return (deviceName, modelName, systemVersion, screenSize)
+                }
 
-                // Get screen dimensions for additional info
-                let screenSize = UIScreen.main.bounds.size
-                let screenInfo = "\(Int(screenSize.width))x\(Int(screenSize.height))"
-
-                return "\(modelName) - \(screenInfo) - iOS \(systemVersion)"
+                let screenInfo = "\(Int(deviceInfo.3.width))x\(Int(deviceInfo.3.height))"
+                return "\(deviceInfo.1) - \(screenInfo) - iOS \(deviceInfo.2)"
             #endif
-        },
-        
-        getDeviceIdentifier: {
-            var systemInfo = utsname()
-            uname(&systemInfo)
-            let machineMirror = Mirror(reflecting: systemInfo.machine)
-            let identifier = machineMirror.children.reduce("") { identifier, element in
-                guard let value = element.value as? Int8, value != 0 else { return identifier }
-                return identifier + String(UnicodeScalar(UInt8(value)))
-            }
-            return identifier
         }
-    )
-}
 
-// MARK: - Helper Functions
+        return Self(
+            getDeviceModel: { @Sendable in
+                await getDeviceModelImpl()
+            },
 
-/// Get the device identifier (e.g., "iPhone13,1")
-private func getDeviceIdentifier() -> String {
-    var systemInfo = utsname()
-    uname(&systemInfo)
-    let machineMirror = Mirror(reflecting: systemInfo.machine)
-    let identifier = machineMirror.children.reduce("") { identifier, element in
-        guard let value = element.value as? Int8, value != 0 else { return identifier }
-        return identifier + String(UnicodeScalar(UInt8(value)))
-    }
-    return identifier
-}
+            getTestPhoneNumber: { @Sendable in
+                let deviceModel = await getDeviceModelImpl()
+                return deviceModel.testPhoneNumber
+            },
 
-/// Get the current device model
-private func getDeviceModel() -> DeviceModel {
-    @Dependency(\.device) var device
-    return device.getDeviceModel()
+            getDeviceDisplayName: { @Sendable in
+                await getDeviceDisplayNameImpl()
+            },
+
+            getDeviceIdentifier: { @Sendable in
+                getDeviceIdentifierImpl()
+            }
+        )
+    }()
 }
 
 // MARK: - Mock Implementation
@@ -253,10 +252,10 @@ extension DeviceClient {
         deviceIdentifier: String = "iPhone13,3"
     ) -> Self {
         Self(
-            getDeviceModel: { deviceModel },
-            getTestPhoneNumber: { testPhoneNumber },
-            getDeviceDisplayName: { deviceDisplayName },
-            getDeviceIdentifier: { deviceIdentifier }
+            getDeviceModel: { @Sendable in deviceModel },
+            getTestPhoneNumber: { @Sendable in testPhoneNumber },
+            getDeviceDisplayName: { @Sendable in deviceDisplayName },
+            getDeviceIdentifier: { @Sendable in deviceIdentifier }
         )
     }
 }
@@ -276,7 +275,7 @@ extension DeviceClient: DependencyKey {
     static var liveValue: DeviceClient {
         return .live
     }
-    
+
     /// The test value of the device client
     static var testValue: DeviceClient {
         return .mock()

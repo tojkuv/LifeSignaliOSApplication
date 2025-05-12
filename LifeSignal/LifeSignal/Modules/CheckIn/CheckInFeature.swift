@@ -23,10 +23,10 @@ struct CheckInFeature {
         var lastCheckedIn: Date = Date()
 
         /// Check-in interval in seconds
-        var checkInInterval: TimeInterval = TimeManager.defaultInterval
+        var checkInInterval: TimeInterval = TimeConstants.defaultCheckInInterval
 
         /// Temporary interval for selection
-        var selectedInterval: TimeInterval = TimeManager.defaultInterval
+        var selectedInterval: TimeInterval = TimeConstants.defaultCheckInInterval
 
         /// Whether the user is currently checking in
         var isCheckingIn: Bool = false

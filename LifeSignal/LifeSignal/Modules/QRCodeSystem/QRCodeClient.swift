@@ -1,11 +1,11 @@
 import Foundation
 import UIKit
 import Vision
-import AVFoundation
+@preconcurrency import AVFoundation
 import CoreImage
 import Dependencies
 import ComposableArchitecture
-import Photos
+@preconcurrency import Photos
 
 /// A client for QR code functionality (scanning, camera operations, and QR code generation)
 @DependencyClient
@@ -13,44 +13,44 @@ struct QRCodeClient {
     // MARK: - QR Code Scanning
 
     /// Scan a QR code from a UIImage
-    var scanQRCode: @Sendable (UIImage) -> String?
+    var scanQRCode: @Sendable (UIImage) -> String? = { _ in nil }
 
     /// Initialize the camera for QR scanning
-    var initializeCamera: @Sendable () async -> Bool
+    var initializeCamera: @Sendable () async -> Bool = { false }
 
     /// Start scanning for QR codes
-    var startScanning: @Sendable () async -> Void
+    var startScanning: @Sendable () async -> Void = { }
 
     /// Stop scanning for QR codes
-    var stopScanning: @Sendable () async -> Void
+    var stopScanning: @Sendable () async -> Void = { }
 
     /// Toggle the torch
-    var toggleTorch: @Sendable (Bool) async -> Void
+    var toggleTorch: @Sendable (Bool) async -> Void = { _ in }
 
     /// Set the QR code scanned handler
-    var setQRCodeScannedHandler: @Sendable (@escaping @Sendable (String) -> Void) -> Void
+    var setQRCodeScannedHandler: @Sendable (@escaping @Sendable (String) -> Void) -> Void = { _ in }
 
     // MARK: - Photo Library Access
 
     /// Load recent photos from the photo library
-    var loadRecentPhotos: @Sendable (Int) async -> [PHAsset]
+    var loadRecentPhotos: @Sendable (Int) async -> [PHAsset] = { _ in [] }
 
     /// Load a thumbnail for a photo asset
-    var loadThumbnail: @Sendable (PHAsset, CGSize) async -> UIImage?
+    var loadThumbnail: @Sendable (PHAsset, CGSize) async -> UIImage? = { _, _ in nil }
 
     /// Load a full-size image for a photo asset
-    var loadFullSizeImage: @Sendable (PHAsset) async -> UIImage?
+    var loadFullSizeImage: @Sendable (PHAsset) async -> UIImage? = { _ in nil }
 
     // MARK: - QR Code Generation
 
     /// Generate a QR code image from a string
-    var generateQRCode: @Sendable (String, CGFloat, UIColor, UIColor) -> UIImage?
+    var generateQRCode: @Sendable (String, CGFloat, UIColor, UIColor) -> UIImage? = { _, _, _, _ in nil }
 
     /// Generate a QR code image with the app's branding
-    var generateBrandedQRCode: @Sendable (String, CGFloat) -> UIImage?
+    var generateBrandedQRCode: @Sendable (String, CGFloat) -> UIImage? = { _, _ in nil }
 
     /// Share a QR code using UIActivityViewController
-    var shareQRCode: @Sendable (String) async -> Void
+    var shareQRCode: @Sendable (String) async -> Void = { _ in }
 }
 
 // MARK: - DependencyKey Conformance
@@ -92,7 +92,9 @@ extension QRCodeClient: DependencyKey {
         }
 
         client.setQRCodeScannedHandler = { @Sendable handler in
-            cameraController.onQRCodeScanned = handler
+            Task { @MainActor in
+                cameraController.onQRCodeScanned = handler
+            }
         }
 
         // MARK: - Photo Library Access Implementation
@@ -120,13 +122,17 @@ extension QRCodeClient: DependencyKey {
             }
         }
 
+        // Create a local copy of the image manager to avoid capturing the non-Sendable type
+        let localImageManager = PHCachingImageManager()
+
         client.loadThumbnail = { @Sendable asset, size in
             return await withCheckedContinuation { continuation in
                 let options = PHImageRequestOptions()
                 options.deliveryMode = .opportunistic
                 options.resizeMode = .exact
 
-                imageManager.requestImage(
+                // Use the local copy instead of capturing the outer variable
+                localImageManager.requestImage(
                     for: asset,
                     targetSize: size,
                     contentMode: .aspectFill,
@@ -143,7 +149,8 @@ extension QRCodeClient: DependencyKey {
                 options.isSynchronous = false
                 options.deliveryMode = .highQualityFormat
 
-                imageManager.requestImage(
+                // Use the local copy instead of capturing the outer variable
+                localImageManager.requestImage(
                     for: asset,
                     targetSize: PHImageManagerMaximumSize,
                     contentMode: .aspectFill,
@@ -199,16 +206,32 @@ extension QRCodeClient: DependencyKey {
             return UIImage(cgImage: cgImage)
         }
 
+        // Create a local copy of the generateQRCode function to avoid capturing 'client'
+        let generateQRCode = client.generateQRCode
+
         client.generateBrandedQRCode = { @Sendable string, size in
             // Generate the basic QR code with app colors
-            return client.generateQRCode(string, size, .white, .blue)
+            // This is a synchronous function
+            return generateQRCode(string, size, .white, .blue)
         }
 
+        // Create a local copy of the generateBrandedQRCode function to avoid capturing 'client'
+        let generateBrandedQRCode = client.generateBrandedQRCode
+
         client.shareQRCode = { @Sendable qrCodeId in
-            if let qrCodeImage = client.generateBrandedQRCode(qrCodeId, 1024) {
-                let activityVC = UIActivityViewController(activityItems: [qrCodeImage], applicationActivities: nil)
+            // The generateBrandedQRCode function is synchronous, so no await is needed
+            if let qrCodeImage = generateBrandedQRCode(qrCodeId, 1024) {
+                // Move all UI operations to the MainActor
                 await MainActor.run {
-                    UIApplication.shared.windows.first?.rootViewController?.present(activityVC, animated: true, completion: nil)
+                    // Create UIActivityViewController on the main thread
+                    let activityVC = UIActivityViewController(activityItems: [qrCodeImage], applicationActivities: nil)
+
+                    // Use UIWindowScene.windows instead of the deprecated UIApplication.shared.windows
+                    if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                       let rootViewController = windowScene.windows.first?.rootViewController {
+                        // present is not async in UIKit, so no await is needed
+                        rootViewController.present(activityVC, animated: true, completion: nil)
+                    }
                 }
             }
         }
@@ -232,14 +255,17 @@ extension QRCodeClient: DependencyKey {
                 return nil
             }
 
-            for result in results where result is VNBarcodeObservation {
-                guard let barcode = result as? VNBarcodeObservation,
-                      let payload = barcode.payloadStringValue,
-                      barcode.symbology == .qr else {
-                    continue
+            // Process each result to find QR codes
+            for result in results {
+                // First check if this is a barcode observation
+                if result is VNBarcodeObservation {
+                    // Safe to force cast since we've checked the type
+                    let barcode = result as! VNBarcodeObservation
+                    // Check if it's a QR code with a valid payload
+                    if barcode.symbology == .qr, let payload = barcode.payloadStringValue {
+                        return payload
+                    }
                 }
-
-                return payload
             }
 
             return nil
@@ -299,8 +325,8 @@ extension DependencyValues {
 // MARK: - QRScannerController
 
 /// Controller for QR code scanning functionality
-@MainActor
-final class QRScannerController: NSObject, AVCaptureMetadataOutputObjectsDelegate {
+// Using @unchecked Sendable because we're manually ensuring thread safety
+final class QRScannerController: NSObject, AVCaptureMetadataOutputObjectsDelegate, @unchecked Sendable {
     /// The capture session for the camera
     private var captureSession: AVCaptureSession?
 
@@ -311,13 +337,13 @@ final class QRScannerController: NSObject, AVCaptureMetadataOutputObjectsDelegat
     private var scanningAreaView: UIView?
 
     /// Flag indicating if the scanner is running
-    private var isRunning = false
+    @MainActor private var isRunning = false
 
     /// The device used for the torch
     private var torchDevice: AVCaptureDevice?
 
     /// Callback for when a QR code is scanned
-    var onQRCodeScanned: @Sendable ((String) -> Void)?
+    @MainActor var onQRCodeScanned: ((String) -> Void)?
 
     /// Initialize the camera for QR scanning
     func initialize() async -> Bool {
@@ -407,7 +433,9 @@ final class QRScannerController: NSObject, AVCaptureMetadataOutputObjectsDelegat
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 captureSession.startRunning()
-                self?.isRunning = true
+                Task { @MainActor [weak self] in
+                    self?.isRunning = true
+                }
                 continuation.resume()
             }
         }
@@ -423,7 +451,9 @@ final class QRScannerController: NSObject, AVCaptureMetadataOutputObjectsDelegat
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 captureSession.stopRunning()
-                self?.isRunning = false
+                Task { @MainActor [weak self] in
+                    self?.isRunning = false
+                }
                 continuation.resume()
             }
         }
@@ -450,7 +480,7 @@ final class QRScannerController: NSObject, AVCaptureMetadataOutputObjectsDelegat
     }
 
     /// Called when metadata objects are captured
-    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
+    nonisolated func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
         // Check if we have a QR code
         for metadataObject in metadataObjects {
             guard let readableObject = metadataObject as? AVMetadataMachineReadableCodeObject,
@@ -463,12 +493,14 @@ final class QRScannerController: NSObject, AVCaptureMetadataOutputObjectsDelegat
             // We found a valid QR code
             print("QR code scanned: \(stringValue)")
 
-            // Stop scanning
-            Task {
-                await stopScanning()
+            // Stop scanning and notify callback on the main actor
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+
+                await self.stopScanning()
 
                 // Notify callback
-                if let onQRCodeScanned = onQRCodeScanned {
+                if let onQRCodeScanned = self.onQRCodeScanned {
                     onQRCodeScanned(stringValue)
                 }
             }

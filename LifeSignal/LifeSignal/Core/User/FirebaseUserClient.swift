@@ -10,37 +10,45 @@ import OSLog
 @DependencyClient
 struct FirebaseUserClient: Sendable {
     /// Get user data once
-    var getUserData: @Sendable (_ userId: String) async throws -> UserData
+    var getUserData: @Sendable (String) async throws -> UserData = { _ in .empty }
 
     /// Get user document once
-    var getUserDocument: @Sendable (_ userId: String) async throws -> UserData
+    var getUserDocument: @Sendable (String) async throws -> UserData = { _ in .empty }
 
     /// Stream user data updates
-    var streamUserData: @Sendable (_ userId: String) -> AsyncStream<TaskResult<UserData>>
+    var streamUserData: @Sendable (String) -> AsyncStream<TaskResult<UserData>> = { _ in
+        AsyncStream { continuation in
+            continuation.finish()
+        }
+    }
 
     /// Stream user document updates
-    var streamUserDocument: @Sendable (_ userId: String) -> AsyncStream<TaskResult<UserData>>
+    var streamUserDocument: @Sendable (String) -> AsyncStream<TaskResult<UserData>> = { _ in
+        AsyncStream { continuation in
+            continuation.finish()
+        }
+    }
 
     /// Update user document with arbitrary fields
-    var updateUserDocument: @Sendable (_ userId: String, _ fields: [String: Any]) async throws -> Void
+    var updateUserDocument: @Sendable (String, [String: Any]) async throws -> Void = { _, _ in }
 
     /// Update user profile
-    var updateProfile: @Sendable (_ userId: String, _ update: ProfileUpdate) async throws -> Void
+    var updateProfile: @Sendable (String, ProfileUpdate) async throws -> Void = { _, _ in }
 
     /// Update notification preferences
-    var updateNotificationPreferences: @Sendable (_ userId: String, _ preferences: NotificationPreferences) async throws -> Void
+    var updateNotificationPreferences: @Sendable (String, NotificationPreferences) async throws -> Void = { _, _ in }
 
     /// Update check-in interval
-    var updateCheckInInterval: @Sendable (_ userId: String, _ interval: TimeInterval) async throws -> Void
+    var updateCheckInInterval: @Sendable (String, TimeInterval) async throws -> Void = { _, _ in }
 
     /// Perform check-in
-    var checkIn: @Sendable (_ userId: String) async throws -> Void
+    var checkIn: @Sendable (String) async throws -> Void = { _ in }
 
     /// Trigger manual alert
-    var triggerManualAlert: @Sendable (_ userId: String) async throws -> Void
+    var triggerManualAlert: @Sendable (String) async throws -> Void = { _ in }
 
     /// Clear manual alert
-    var clearManualAlert: @Sendable (_ userId: String) async throws -> Void
+    var clearManualAlert: @Sendable (String) async throws -> Void = { _ in }
 }
 
 // MARK: - Live Implementation
@@ -260,42 +268,52 @@ extension FirebaseUserClient: DependencyKey {
 extension FirebaseUserClient {
     /// A test implementation that returns predefined values for testing
     static let testValue = Self(
-        getUserData: XCTUnimplemented("\(Self.self).getUserData", placeholder: .empty),
-        getUserDocument: XCTUnimplemented("\(Self.self).getUserDocument", placeholder: .empty),
-        streamUserData: XCTUnimplemented("\(Self.self).streamUserData", placeholder: { _ in AsyncStream { _ in } }),
-        streamUserDocument: XCTUnimplemented("\(Self.self).streamUserDocument", placeholder: { _ in AsyncStream { _ in } }),
-        updateUserDocument: XCTUnimplemented("\(Self.self).updateUserDocument"),
-        updateProfile: XCTUnimplemented("\(Self.self).updateProfile"),
-        updateNotificationPreferences: XCTUnimplemented("\(Self.self).updateNotificationPreferences"),
-        updateCheckInInterval: XCTUnimplemented("\(Self.self).updateCheckInInterval"),
-        checkIn: XCTUnimplemented("\(Self.self).checkIn"),
-        triggerManualAlert: XCTUnimplemented("\(Self.self).triggerManualAlert"),
-        clearManualAlert: XCTUnimplemented("\(Self.self).clearManualAlert")
+        getUserData: { _ in .empty },
+        getUserDocument: { _ in .empty },
+        streamUserData: { _ in
+            AsyncStream { continuation in
+                continuation.yield(.success(.empty))
+                continuation.finish()
+            }
+        },
+        streamUserDocument: { _ in
+            AsyncStream { continuation in
+                continuation.yield(.success(.empty))
+                continuation.finish()
+            }
+        },
+        updateUserDocument: { _, _ in },
+        updateProfile: { _, _ in },
+        updateNotificationPreferences: { _, _ in },
+        updateCheckInInterval: { _, _ in },
+        checkIn: { _ in },
+        triggerManualAlert: { _ in },
+        clearManualAlert: { _ in }
     )
 
     /// A mock implementation that returns predefined values for testing
     static func mock(
-        getUserData: @escaping (_ userId: String) async throws -> UserData = { _ in .empty },
-        getUserDocument: @escaping (_ userId: String) async throws -> UserData = { _ in .empty },
-        streamUserData: @escaping (_ userId: String) -> AsyncStream<TaskResult<UserData>> = { _ in
-            AsyncStream { continuation in
+        getUserData: @escaping @Sendable (String) async throws -> UserData = { _ in .empty },
+        getUserDocument: @escaping @Sendable (String) async throws -> UserData = { _ in .empty },
+        streamUserData: @escaping @Sendable (String) -> AsyncStream<TaskResult<UserData>> = { _ in
+            AsyncStream<TaskResult<UserData>> { continuation in
                 continuation.yield(.success(.empty))
                 continuation.finish()
             }
         },
-        streamUserDocument: @escaping (_ userId: String) -> AsyncStream<TaskResult<UserData>> = { _ in
-            AsyncStream { continuation in
+        streamUserDocument: @escaping @Sendable (String) -> AsyncStream<TaskResult<UserData>> = { _ in
+            AsyncStream<TaskResult<UserData>> { continuation in
                 continuation.yield(.success(.empty))
                 continuation.finish()
             }
         },
-        updateUserDocument: @escaping (_ userId: String, _ fields: [String: Any]) async throws -> Void = { _, _ in },
-        updateProfile: @escaping (_ userId: String, _ update: ProfileUpdate) async throws -> Void = { _, _ in },
-        updateNotificationPreferences: @escaping (_ userId: String, _ preferences: NotificationPreferences) async throws -> Void = { _, _ in },
-        updateCheckInInterval: @escaping (_ userId: String, _ interval: TimeInterval) async throws -> Void = { _, _ in },
-        checkIn: @escaping (_ userId: String) async throws -> Void = { _ in },
-        triggerManualAlert: @escaping (_ userId: String) async throws -> Void = { _ in },
-        clearManualAlert: @escaping (_ userId: String) async throws -> Void = { _ in }
+        updateUserDocument: @escaping @Sendable (String, [String: Any]) async throws -> Void = { _, _ in },
+        updateProfile: @escaping @Sendable (String, ProfileUpdate) async throws -> Void = { _, _ in },
+        updateNotificationPreferences: @escaping @Sendable (String, NotificationPreferences) async throws -> Void = { _, _ in },
+        updateCheckInInterval: @escaping @Sendable (String, TimeInterval) async throws -> Void = { _, _ in },
+        checkIn: @escaping @Sendable (String) async throws -> Void = { _ in },
+        triggerManualAlert: @escaping @Sendable (String) async throws -> Void = { _ in },
+        clearManualAlert: @escaping @Sendable (String) async throws -> Void = { _ in }
     ) -> Self {
         Self(
             getUserData: getUserData,
