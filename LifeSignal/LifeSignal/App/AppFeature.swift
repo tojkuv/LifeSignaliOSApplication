@@ -1,423 +1,420 @@
 import Foundation
 import ComposableArchitecture
-import UIKit
 import FirebaseAuth
-import FirebaseFirestore
+import FirebaseCore
 import FirebaseMessaging
+import UserNotifications
+import UIKit
 
-/// Root feature for the app using TCA
+/// The main app feature that composes all other features
 @Reducer
 struct AppFeature {
+    /// Cancellation IDs for long-running effects
+    enum CancelID: Hashable, Sendable {
+        case appLifecycle
+    }
+
     /// The state of the app feature
+    @ObservableState
     struct State: Equatable, Sendable {
-        /// Authentication feature state
-        var authentication: AuthenticationFeature.State?
+        /// User state (parent feature)
+        var user = UserFeature.State()
 
-        /// User feature state (shared across features)
-        var user: UserFeature.State?
+        /// Sign-in state
+        var signIn = SignInFeature.State()
 
-        /// Contacts feature state
-        var contacts: ContactsFeature.State?
+        /// Contacts state
+        var contacts = ContactsFeature.State()
 
-        /// QR code feature state
-        var qrCode: QRCodeFeature.State?
+        /// Shared feature states
+        var qrScanner = QRScannerFeature.State()
 
-        /// Notification feature state
-        var notification: NotificationFeature.State?
+        /// Presentation states using @Presents
+        @Presents var contactDetails: ContactDetailsSheetFeature.State?
 
-        /// Flag indicating if user is authenticated
-        var isAuthenticated: Bool = false
+        /// Tab feature states
+        var home = HomeFeature.State()
+        var responders = RespondersFeature.State()
+        var dependents = DependentsFeature.State()
 
-        /// Flag indicating if user needs to complete onboarding
-        var needsOnboarding: Bool = false
+        /// New feature states
+        var alert = AlertFeature.State()
+        var notification = NotificationFeature.State()
 
-        /// Session listener task (not included in Equatable)
-        @EquatableNoop var sessionListenerTask: Task<Void, Never>? = nil
+        /// Onboarding feature state
+        var onboarding = OnboardingFeature.State()
 
-        /// FCM token
-        var fcmToken: String? = nil
+        /// Error alert
+        @Presents var errorAlert: AlertState<Action.Alert>?
+
+        /// App lifecycle state - using @Shared for app-wide state
+        @Shared(.inMemory("authState")) var isAuthenticated = false
+        @Shared(.inMemory("onboardingState")) var needsOnboarding = false
+
+        /// Initialize with default values
+        init() {
+            // Note: CheckInFeature and ProfileFeature are now child features of UserFeature
+            // and will be initialized within UserFeature
+        }
     }
 
     /// Actions that can be performed on the app feature
     enum Action: Equatable, Sendable {
-        /// App lifecycle actions
-        case appLaunched
+        // MARK: - Child Feature Actions
 
-        /// Authentication actions
-        case authentication(AuthenticationFeature.Action)
-
-        /// User actions (shared across features)
+        /// User feature actions (parent feature)
         case user(UserFeature.Action)
 
-        /// Contacts actions
+        /// Sign-in feature actions
+        case signIn(SignInFeature.Action)
+
+        /// Contacts feature actions
         case contacts(ContactsFeature.Action)
 
-        /// QR code actions
-        case qrCode(QRCodeFeature.Action)
+        /// Shared feature actions
+        case qrScanner(QRScannerFeature.Action)
+        case contactDetails(PresentationAction<ContactDetailsSheetFeature.Action>)
 
-        /// Notification actions
+        /// Tab feature actions
+        case home(HomeFeature.Action)
+        case responders(RespondersFeature.Action)
+        case dependents(DependentsFeature.Action)
+
+        /// New feature actions
+        case alert(AlertFeature.Action)
         case notification(NotificationFeature.Action)
 
-        /// Initialize Firebase
-        case initializeFirebase
-        case firebaseInitialized
+        /// Onboarding feature actions
+        case onboarding(OnboardingFeature.Action)
 
-        /// Set authentication state
-        case authenticate
+        /// Error alert actions
+        case errorAlert(PresentationAction<Alert>)
 
-        /// Set onboarding state
-        case setNeedsOnboarding(Bool)
+        /// Alert actions enum
+        enum Alert: Equatable, Sendable {
+            case dismiss
+            case retry
+        }
 
-        /// Complete onboarding
-        case completeOnboarding
+        // MARK: - App Lifecycle Actions
 
-        /// Sign out
-        case signOut
+        /// App appeared
+        case appAppeared
 
-        // MARK: - Session Management
+        /// App state changed
+        case appStateChanged(oldState: UIApplication.State, newState: UIApplication.State)
 
-        /// Set up session listener
-        case setupSessionListener(userId: String)
-        case sessionInvalidated
-        case clearSessionId
-
-        // MARK: - Push Notification Handling
-
-        /// Register device token for push notifications
-        case registerDeviceToken(Data)
+        /// Authentication state changed
+        case authStateChanged
 
         /// Update FCM token
         case updateFCMToken(String)
-        case updateFCMTokenResponse(TaskResult<Bool>)
-
-        /// Handle remote notification
-        case handleRemoteNotification([AnyHashable: Any])
 
         /// Handle URL
         case handleURL(URL)
+
+        /// Check authentication state
+        case checkAuthenticationState
+        case checkAuthenticationStateResponse(Bool)
+
+        /// Check onboarding state
+        case checkOnboardingState
+        case checkOnboardingStateResponse(Bool)
     }
+
+    /// Dependencies
+    @Dependency(\.firebaseAuth) var firebaseAuth
+    @Dependency(\.firebaseApp) var firebaseApp
+    @Dependency(\.firebaseNotification) var firebaseNotification
+    @Dependency(\.firebaseSessionClient) var firebaseSessionClient
 
     /// The body of the reducer
     var body: some ReducerOf<Self> {
         Reduce { state, action in
             switch action {
-            case .appLaunched:
-                // Handle app launch - initialize Firebase and check authentication
-                return .send(.initializeFirebase)
+            // MARK: - App Lifecycle
 
-            case .initializeFirebase:
-                return .run { send in
-                    // Initialize Firebase
-                    FirebaseInitializer.initialize()
+            case .appAppeared:
+                return .merge(
+                    .send(.checkAuthenticationState),
+                    .run { [firebaseNotification] _ in
+                        _ = await firebaseNotification.getAuthorizationStatus()
+                    }
+                )
 
-                    // Set up Firebase Messaging
-                    await FirebaseInitializer.setupMessaging()
-
-                    await send(.firebaseInitialized)
-                }
-
-            case .firebaseInitialized:
-                // Check if user is already authenticated
-                if let userId = Auth.auth().currentUser?.uid {
-                    // Set up session listener
-                    return .concatenate(
-                        .send(.setupSessionListener(userId: userId)),
-                        .send(.authenticate)
+            case let .appStateChanged(oldState, newState):
+                if newState == .active && oldState != .active && state.isAuthenticated {
+                    return .merge(
+                        .send(.user(.loadUserData)),
+                        .send(.contacts(.loadContacts))
                     )
                 }
                 return .none
 
-            case .authenticate:
-                state.isAuthenticated = true
+            case .authStateChanged:
+                return .send(.checkAuthenticationState)
 
-                // Initialize user feature state first
-                if state.user == nil {
-                    state.user = UserFeature.State()
+            case .checkAuthenticationState:
+                return .run { [firebaseAuth] send in
+                    let isAuthenticated = await firebaseAuth.isAuthenticated()
+                    await send(.checkAuthenticationStateResponse(isAuthenticated))
                 }
 
-                // Initialize contacts feature state if it doesn't exist
-                if state.contacts == nil {
-                    state.contacts = ContactsFeature.State()
-                }
+            case let .checkAuthenticationStateResponse(isAuthenticated):
+                let wasAuthenticated = state.$isAuthenticated.withLock { $0 }
 
-                // Initialize QR code feature state if it doesn't exist
-                if state.qrCode == nil {
-                    state.qrCode = QRCodeFeature.State()
-                }
+                // Update the shared authentication state
+                state.$isAuthenticated.withLock { $0 = isAuthenticated }
 
-                // Initialize notification feature state if it doesn't exist
-                if state.notification == nil {
-                    state.notification = NotificationFeature.State()
-                }
-
-                // Start streaming user data and contacts
-                return .concatenate(
-                    .send(.user(.startUserDataStream)),
-                    .send(.contacts(.startContactsStream)),
-                    .send(.notification(.checkAuthorizationStatus))
-                )
-
-            case .setNeedsOnboarding(let needsOnboarding):
-                state.needsOnboarding = needsOnboarding
-                return .none
-
-            case .completeOnboarding:
-                state.needsOnboarding = false
-
-                // In a real implementation, we would save the profile information
-                // to Firebase here
-
-                return .none
-
-            case .authentication(.verifyCodeResponse(.success(true))):
-                // User successfully authenticated
-                return .send(.authenticate)
-
-            case .authentication:
-                // Handle other authentication actions
-                if state.authentication == nil {
-                    state.authentication = AuthenticationFeature.State()
+                if !wasAuthenticated && isAuthenticated {
+                    return .merge(
+                        .send(.user(.startUserDataStream)),
+                        .send(.contacts(.startContactsStream)),
+                        .send(.checkOnboardingState)
+                    )
+                } else if wasAuthenticated && !isAuthenticated {
+                    return .merge(
+                        .send(.user(.stopUserDataStream)),
+                        .send(.contacts(.stopContactsStream))
+                    )
                 }
 
                 return .none
 
-            case .contacts(.startContactsStream), .contacts(.stopContactsStream), .contacts(.contactsStreamResponse):
-                // These actions are handled directly in the contacts feature
-                return .none
+            case .checkOnboardingState:
+                return .send(.checkOnboardingStateResponse(!state.user.userData.profileComplete))
 
-            case .contacts:
-                // Handle other contacts actions
-                return .none
-
-            case .user(.signOutResponse(.success)):
-                // Handle successful sign out
-                state.isAuthenticated = false
-                state.user = nil
-                state.contacts = nil
-                state.authentication = nil
-                return .none
-
-            case .user(.signOut):
-                // Stop all streams before signing out
-                return .concatenate(
-                    .send(.user(.stopUserDataStream)),
-                    .send(.contacts(.stopContactsStream))
-                )
-
-            case let .user(.userDataStreamResponse(userData)):
-                // Check if the user has completed onboarding when user data is received
-                if state.isAuthenticated && !userData.profileComplete {
-                    return .send(.setNeedsOnboarding(true))
-                }
-                return .none
-
-            case .user:
-                // Handle other user actions
-                return .none
-
-            case let .qrCode(.scanQRCode(code)):
-                // When a QR code is scanned, we need to look up the user in Firebase
-                guard let userId = state.user?.id else {
-                    return .none
-                }
-
-                // Forward the scanned QR code to the QR code feature
-                if let qrCodeState = state.qrCode {
-                    state.qrCode = qrCodeState
-                    return .send(.qrCode(.scanQRCode(code)))
-                }
-                return .none
-
-            case .qrCode(.clearScannedQRCode):
-                // Clear the scanned QR code
-                if let qrCodeState = state.qrCode {
-                    state.qrCode = qrCodeState
-                    return .send(.qrCode(.clearScannedQRCode))
-                }
-                return .none
-
-            case .qrCode:
-                // Handle other QR code actions
-                return .none
-
-            case .notification(.requestPermissionsResponse), .notification(.checkAuthorizationStatusResponse):
-                // These actions are handled directly in the notification feature
-                return .none
-
-            case .notification:
-                // Handle other notification actions
-                return .none
-
-            // MARK: - Session Management
-
-            case let .setupSessionListener(userId):
-                // Cancel any existing listener
-                state.sessionListenerTask?.cancel()
-                state.sessionListenerTask = nil
-
-                // Create a new listener task
-                state.sessionListenerTask = Task {
-                    // Create a store for the authentication feature
-                    let store = Store(initialState: AuthenticationFeature.State()) {
-                        AuthenticationFeature()
-                    }
-
-                    // Start the session stream
-                    await ViewStore(store, observe: { $0 }).send(.startSessionStream(userId: userId))
-
-                    // Create a task to observe session invalidation
-                    for await action in await store.actionStream {
-                        if case .sessionInvalidated = action {
-                            // Session was invalidated, sign out the user
-                            print("Session was invalidated, signing out")
-
-                            // Sign out on the main thread
-                            await MainActor.run {
-                                // Sign out using Auth
-                                try? Auth.auth().signOut()
-
-                                // Clear session ID
-                                await ViewStore(store, observe: { $0 }).send(.clearSessionId)
-
-                                // Post notification to reset app state
-                                NotificationCenter.default.post(name: NSNotification.Name("ResetAppState"), object: nil)
-                            }
-
-                            break
-                        }
-                    }
-                }
-                return .none
-
-            case .sessionInvalidated:
-                // This action is handled by the session listener
-                return .none
-
-            case .clearSessionId:
-                // This action is handled by the authentication feature
-                return .none
-
-            // MARK: - Push Notification Handling
-
-            case let .registerDeviceToken(deviceToken):
-                // Pass device token to auth
-                Auth.auth().setAPNSToken(deviceToken, type: .unknown)
-
-                // Pass device token to FCM
-                Messaging.messaging().apnsToken = deviceToken
-
-                // No further action needed, FCM token updates will come through the MessagingDelegateAdapter
+            case let .checkOnboardingStateResponse(needsOnboarding):
+                // Update the shared onboarding state
+                state.$needsOnboarding.withLock { $0 = needsOnboarding }
                 return .none
 
             case let .updateFCMToken(token):
-                state.fcmToken = token
-
-                // Only update token in Firestore if user is authenticated
-                guard let userId = Auth.auth().currentUser?.uid else {
-                    return .none
-                }
-
-                return .run { send in
-                    let result = await TaskResult {
-                        let db = Firestore.firestore()
-                        let userRef = db.collection(FirestoreConstants.Collections.users).document(userId)
-
-                        try await userRef.updateData([
-                            FirestoreConstants.UserFields.fcmToken: token,
-                            FirestoreConstants.UserFields.lastUpdated: FieldValue.serverTimestamp()
-                        ])
-
-                        return true
-                    }
-
-                    await send(.updateFCMTokenResponse(result))
-                }
-
-            case .updateFCMTokenResponse:
-                // No state changes needed
-                return .none
-
-            case let .handleRemoteNotification(notification):
-                // Handle FCM notifications
-                print("Handling remote notification: \(notification)")
-
-                // Check if this is an alert notification
-                if let alertType = notification["alertType"] as? String {
-                    print("Received alert notification of type: \(alertType)")
-
-                    switch alertType {
-                    case "manualAlert":
-                        if let dependentId = notification["dependentId"] as? String,
-                           let dependentName = notification["dependentName"] as? String,
-                           let timestampString = notification["timestamp"] as? String,
-                           let timestampValue = Double(timestampString) {
-
-                            let timestamp = Date(timeIntervalSince1970: timestampValue)
-                            print("Manual alert from dependent: \(dependentId) - \(dependentName)")
-
-                            // Forward to notification feature
-                            return .send(.notification(.handleDependentAlert(
-                                dependentId: dependentId,
-                                dependentName: dependentName,
-                                timestamp: timestamp
-                            )))
-                        }
-
-                    case "manualAlertCanceled":
-                        if let dependentId = notification["dependentId"] as? String,
-                           let dependentName = notification["dependentName"] as? String {
-                            print("Manual alert canceled for dependent: \(dependentId) - \(dependentName)")
-
-                            // Forward to notification feature
-                            return .send(.notification(.handleDependentAlertCancellation(
-                                dependentId: dependentId,
-                                dependentName: dependentName
-                            )))
-                        }
-
-                    case "checkInExpired":
-                        if let dependentId = notification["dependentId"] as? String,
-                           let dependentName = notification["dependentName"] as? String {
-                            print("Check-in expired for dependent: \(dependentId)")
-
-                            // Forward to notification feature
-                            return .send(.notification(.showLocalNotification(
-                                title: "Check-in Expired",
-                                body: "\(dependentName)'s check-in has expired.",
-                                userInfo: ["dependentId": dependentId]
-                            )))
-                        }
-
-                    default:
-                        break
-                    }
-                }
-
-                return .none
+                return .send(.notification(.updateFCMToken(token)))
 
             case let .handleURL(url):
-                // Currently only handling Firebase Auth URLs
-                // Add additional URL handling here if needed
-                print("Handling URL: \(url)")
+                // Handle deep links
                 return .none
 
-            // Profile feature has been removed, using UserFeature directly
+            // MARK: - Child Feature Actions
+
+            case .user, .signIn, .contacts:
+                return .none
+
+            case let .qrScanner(.contacts(.lookupContactByQRCode(code))):
+                return .send(.contacts(.lookupContactByQRCode(code)))
+
+            case .qrScanner(.contacts(.addContact)):
+                return .send(.contacts(.addContact))
+
+            case .qrScanner:
+                return .none
+
+            case .contactDetails(.presented(.contacts(.pingDependent(let id)))):
+                return .send(.contacts(.pingDependent(id)))
+
+            case .contactDetails(.presented(.contacts(.sendManualAlert(let id)))):
+                return .send(.contacts(.sendManualAlert(id)))
+
+            case .contactDetails(.presented(.contacts(.cancelManualAlert(let id)))):
+                return .send(.contacts(.cancelManualAlert(id)))
+
+            case .contactDetails(.presented(.contacts(.removeContact(let id)))):
+                return .send(.contacts(.removeContact(id)))
+
+            case .contactDetails(.presented(.contacts(.toggleContactRole(let id, let isResponder, let isDependent)))):
+                return .send(.contacts(.toggleContactRole(id: id, isResponder: isResponder, isDependent: isDependent)))
+
+            case .contactDetails:
+                return .none
+
+            // Home feature actions are now handled directly by UserFeature
+
+            // QR scanner actions from home
+            case let .home(.qrScanner(qrScannerAction)):
+                return .send(.qrScanner(qrScannerAction))
+
+            // Add contact actions from home
+            case let .home(.addContact(.updateQRCode(qrCode))):
+                return .send(.qrScanner(.qrCodeScanned(qrCode)))
+
+            case .home(.addContact):
+                return .none
+
+            case let .home(.delegate(.updateCheckInInterval(interval))):
+                return .send(.user(.updateCheckInInterval(interval)))
+
+            case .home:
+                return .none
+
+            case .responders(.contacts(.loadContacts)):
+                return .send(.contacts(.loadContacts))
+
+            case .responders(.contacts(.respondToAllPings)):
+                return .send(.contacts(.respondToAllPings))
+
+            case let .responders(.qrScanner(.setActive(active))):
+                return .send(.qrScanner(.setActive(active)))
+
+            case .responders(.qrScanner(.scanQRCode)):
+                return .send(.qrScanner(.scanQRCode))
+
+            case let .responders(.contactDetails(.setActive(active))):
+                if active {
+                    // Create contact details state when activating
+                    state.contactDetails = ContactDetailsSheetFeature.State()
+                } else {
+                    // Clear contact details state when deactivating
+                    state.contactDetails = nil
+                }
+                return .none
+
+            case let .responders(.contactDetails(.setContact(contact))):
+                if state.contactDetails == nil {
+                    state.contactDetails = ContactDetailsSheetFeature.State()
+                }
+                return .send(.contactDetails(.presented(.setContact(contact))))
+
+            case .responders:
+                return .none
+
+            case let .user(.userDataStreamResponse(userData)):
+                // Sync user data to other features
+                return .merge(
+                    .send(.notification(.updateNotificationState(
+                        enabled: userData.notificationEnabled,
+                        notify30Min: userData.notify30MinBefore,
+                        notify2Hours: userData.notify2HoursBefore
+                    ))),
+                    .send(.alert(.updateAlertState(
+                        isActive: userData.manualAlertActive,
+                        timestamp: userData.manualAlertTimestamp
+                    )))
+                )
+
+            case let .qrScanner(.setShowScanner(show)):
+                state.qrScanner.showScanner = show
+                return .none
+
+            case .dependents:
+                return .none
+
+            // User sign out is now handled by UserFeature
+            case .user(.delegate(.userSignedOut)):
+                return .run { [firebaseAuth, firebaseSessionClient] send in
+                    do {
+                        // Clear session ID
+                        firebaseSessionClient.clearSessionId()
+
+                        // Sign out using Firebase Auth
+                        try await firebaseAuth.signOut()
+
+                        // Notify the app that auth state changed
+                        await send(.authStateChanged)
+                    } catch {
+                        // Handle sign out error with alert
+                        await send(.errorAlert(.presented(.init(title: TextState("Sign Out Error"),
+                                                               message: TextState(error.localizedDescription)))))
+                    }
+                }
+
+            // Alert feature actions
+            case .alert(.triggerManualAlert):
+                return .none
+
+            case .alert(.clearManualAlert):
+                return .none
+
+            case .alert:
+                return .none
+
+            // Notification feature actions
+            case .notification(.updateNotificationSettings):
+                return .none
+
+            case .notification(.updateNotificationPreferences):
+                return .none
+
+            case .notification:
+                return .none
+
+            case .onboarding(.delegate(.onboardingCompleted)):
+                // Update the shared onboarding state
+                state.$needsOnboarding.withLock { $0 = false }
+                return .none
+
+            case .onboarding:
+                return .none
+
+            // Error alert actions
+            case .errorAlert(.dismiss), .errorAlert(.presented(.dismiss)):
+                state.errorAlert = nil
+                return .none
+
+            case .errorAlert(.presented(.retry)):
+                state.errorAlert = nil
+                // Add retry logic if needed
+                return .none
+
+            case .errorAlert:
+                return .none
             }
         }
-        .ifLet(\.authentication, action: /Action.authentication) {
-            AuthenticationFeature()
-        }
-        .ifLet(\.user, action: /Action.user) {
+
+        // Scope child features
+        Scope(state: \.user, action: \.user) {
             UserFeature()
         }
-        .ifLet(\.contacts, action: /Action.contacts) {
+
+        Scope(state: \.signIn, action: \.signIn) {
+            SignInFeature()
+        }
+
+        Scope(state: \.contacts, action: \.contacts) {
             ContactsFeature()
         }
-        .ifLet(\.qrCode, action: /Action.qrCode) {
-            QRCodeFeature()
+
+        // Shared feature reducers
+        Scope(state: \.qrScanner, action: \.qrScanner) {
+            QRScannerFeature()
         }
-        .ifLet(\.notification, action: /Action.notification) {
+
+        // Use the new presentation reducers
+        .presents(state: \.contactDetails, action: \.contactDetails) {
+            ContactDetailsSheetFeature()
+        }
+
+        // Tab feature reducers
+        Scope(state: \.home, action: \.home) {
+            HomeFeature()
+        }
+
+        Scope(state: \.responders, action: \.responders) {
+            RespondersFeature()
+        }
+
+        Scope(state: \.dependents, action: \.dependents) {
+            DependentsFeature()
+        }
+
+        // New feature reducers
+        Scope(state: \.alert, action: \.alert) {
+            AlertFeature()
+        }
+
+        Scope(state: \.notification, action: \.notification) {
             NotificationFeature()
         }
+
+        Scope(state: \.onboarding, action: \.onboarding) {
+            OnboardingFeature()
+        }
+
+        // Add error alert presentation
+        .presents(state: \.errorAlert, action: \.errorAlert)
     }
+
+    // MARK: - App Delegate Methods
+
+    /// These methods have been moved to the AppDelegate class and are now using dependency clients
 }

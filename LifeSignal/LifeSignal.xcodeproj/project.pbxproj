@@ -252,6 +252,7 @@
 			packageReferences = (
 				988BA9732DCC5E3A00024FD8 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				9843B4322DCEFFC30020A050 /* XCRemoteSwiftPackageReference "swift-composable-architecture" */,
+				98FE7A062DD1525000EE6036 /* XCRemoteSwiftPackageReference "swift-dependencies" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 988BA1142DCB11F500024FD8 /* Products */;
@@ -644,6 +645,14 @@
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 11.12.0;
+			};
+		};
+		98FE7A062DD1525000EE6036 /* XCRemoteSwiftPackageReference "swift-dependencies" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/pointfreeco/swift-dependencies";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.9.2;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

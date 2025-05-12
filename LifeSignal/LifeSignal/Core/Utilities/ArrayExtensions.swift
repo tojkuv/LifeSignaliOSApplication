@@ -17,4 +17,11 @@ extension Array {
         }
         return (first, second)
     }
+
+    /// Safe subscript for arrays that returns nil if the index is out of bounds
+    /// - Parameter index: The index to access
+    /// - Returns: The element at the index, or nil if the index is out of bounds
+    subscript(safe index: Int) -> Element? {
+        return indices.contains(index) ? self[index] : nil
+    }
 }
