@@ -14,22 +14,24 @@ import UIKit
 @DependencyClient
 struct FirebaseAppClient: Sendable {
     /// Configure Firebase
-    var configure: @Sendable () -> Void
+    var configure: @Sendable () -> Void = { }
 
     /// Set up Firebase Messaging for push notifications
-    var setupMessaging: @Sendable () async -> Void
+    var setupMessaging: @Sendable () async -> Void = { }
 
     /// Handle open URL
-    var handleOpenURL: @Sendable (URL) -> Bool
+    var handleOpenURL: @Sendable (URL) -> Bool = { _ in false }
 
     /// Add auth state listener
-    var addAuthStateListener: @Sendable (@Sendable @escaping (Auth, User?) -> Void) -> NSObjectProtocol
+    var addAuthStateListener: @Sendable (@Sendable @escaping (Auth, User?) -> Void) -> NSObjectProtocol = { _ in
+        NSObject()
+    }
 
     /// Remove auth state listener
-    var removeAuthStateListener: @Sendable (NSObjectProtocol) -> Void
+    var removeAuthStateListener: @Sendable (NSObjectProtocol) -> Void = { _ in }
 
     /// Get Firebase initialization status as a string
-    var getInitializationStatus: @Sendable () -> String
+    var getInitializationStatus: @Sendable () -> String = { "Firebase not initialized" }
 }
 
 extension FirebaseAppClient: DependencyKey {

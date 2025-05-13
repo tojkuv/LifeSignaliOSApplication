@@ -1,5 +1,6 @@
 import Foundation
 import ComposableArchitecture
+import Dependencies
 
 /// Feature for the home screen
 @Reducer
@@ -17,6 +18,12 @@ struct HomeFeature {
         var qrScanner: QRScannerFeature.State = .init()
         var addContact: AddContactFeature.State = .init()
 
+        /// Loading state
+        var isLoading: Bool = false
+
+        /// Error state
+        var error: UserFacingError? = nil
+
         /// Initialize with default values
         init() {}
     }
@@ -27,6 +34,7 @@ struct HomeFeature {
         @ObservableState
         struct State: Equatable, Sendable {}
 
+        @CasePathable
         enum Action: Equatable, Sendable {
             case intervalSelected(TimeInterval)
             case dismiss
@@ -48,6 +56,7 @@ struct HomeFeature {
         @ObservableState
         struct State: Equatable, Sendable {}
 
+        @CasePathable
         enum Action: Equatable, Sendable {
             case dismiss
         }
@@ -68,6 +77,7 @@ struct HomeFeature {
         @ObservableState
         struct State: Equatable, Sendable {}
 
+        @CasePathable
         enum Action: Equatable, Sendable {
             case dismiss
         }
@@ -88,6 +98,7 @@ struct HomeFeature {
         @ObservableState
         struct State: Equatable, Sendable {}
 
+        @CasePathable
         enum Action: Equatable, Sendable {
             case confirm
             case dismiss
@@ -104,6 +115,7 @@ struct HomeFeature {
     }
 
     /// Actions that can be performed on the home feature
+    @CasePathable
     enum Action: Equatable, Sendable, BindableAction {
         /// Sheet presentation actions with PresentationAction
         case intervalPicker(PresentationAction<IntervalPickerFeature.Action>)
@@ -118,12 +130,13 @@ struct HomeFeature {
         case showIntervalPickerButtonTapped
         case showInstructionsButtonTapped
 
+        /// State management
+        case setLoading(Bool)
+        case setError(UserFacingError?)
+
         /// Child feature actions
         case qrScanner(QRScannerFeature.Action)
         case addContact(AddContactFeature.Action)
-
-        /// User actions that will be delegated to UserFeature
-        case user(UserAction)
 
         /// Delegate actions to communicate with parent features
         case delegate(Delegate)
@@ -132,8 +145,11 @@ struct HomeFeature {
         case binding(BindingAction<State>)
 
         /// Delegate actions enum
+        @CasePathable
         enum Delegate: Equatable, Sendable {
             case updateCheckInInterval(TimeInterval)
+            case checkInRequested
+            case errorOccurred(UserFacingError)
         }
     }
 
@@ -191,6 +207,15 @@ struct HomeFeature {
                 state.instructions = InstructionsFeature.State()
                 return .none
 
+            // State management
+            case let .setLoading(isLoading):
+                state.isLoading = isLoading
+                return .none
+
+            case let .setError(error):
+                state.error = error
+                return .none
+
             // Presentation actions
             case .intervalPicker(.presented(.intervalSelected(let interval))):
                 // Use delegate pattern to communicate with parent
@@ -206,15 +231,13 @@ struct HomeFeature {
 
             case .checkInConfirmation(.presented(.confirm)):
                 // Handle check-in confirmation
-                return .send(.user(.checkIn))
-
-            // User actions are now handled directly by UserFeature
-            case .user:
-                return .none
+                state.checkInConfirmation = nil
+                return .send(.delegate(.checkInRequested))
 
             // QR scanner actions
-            case .qrScanner(.qrCodeScanned):
+            case .qrScanner(.qrCodeScanned(let code)):
                 // When a QR code is scanned, show the add contact sheet
+                state.addContact.qrCode = code
                 return .send(.addContact(.setSheetPresented(true)))
 
             case .qrScanner:
@@ -232,6 +255,10 @@ struct HomeFeature {
 
             // Handle binding actions
             case .binding:
+                return .none
+
+            // Delegate actions
+            case .delegate:
                 return .none
             }
         }

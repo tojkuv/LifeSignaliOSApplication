@@ -44,18 +44,6 @@ struct MainTabView: View {
                         store: store.scope(
                             state: \.responders,
                             action: \.responders
-                        ),
-                        contactsStore: store.scope(
-                            state: \.contacts,
-                            action: \.contacts
-                        ),
-                        contactDetailsStore: store.scope(
-                            state: \.contactDetails,
-                            action: \.contactDetails
-                        ),
-                        qrScannerStore: store.scope(
-                            state: \.qrScanner,
-                            action: \.qrScanner
                         )
                     )
                 }
@@ -84,18 +72,6 @@ struct MainTabView: View {
                         store: store.scope(
                             state: \.dependents,
                             action: \.dependents
-                        ),
-                        contactsStore: store.scope(
-                            state: \.contacts,
-                            action: \.contacts
-                        ),
-                        contactDetailsStore: store.scope(
-                            state: \.contactDetails,
-                            action: \.contactDetails
-                        ),
-                        qrScannerStore: store.scope(
-                            state: \.qrScanner,
-                            action: \.qrScanner
                         )
                     )
                 }

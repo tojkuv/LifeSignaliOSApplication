@@ -1,7 +1,6 @@
 import SwiftUI
 import ComposableArchitecture
-import Combine
-import FirebaseAuth
+import Dependencies
 
 /// A feature for the check-in functionality
 /// This feature is a child of UserFeature and focuses on check-in specific UI and operations
@@ -34,8 +33,8 @@ struct CheckInFeature {
         /// Whether the user is currently updating the interval
         var isUpdatingInterval: Bool = false
 
-        /// Error state
-        var error: Error?
+        /// Error state - using UserFacingError for consistency
+        var error: UserFacingError? = nil
 
         /// Computed property for check-in expiration date
         var checkInExpiration: Date {
@@ -56,22 +55,10 @@ struct CheckInFeature {
             self.checkInInterval = checkInInterval
             self.selectedInterval = checkInInterval
         }
-
-        /// Custom Equatable implementation to handle Error? property
-        static func == (lhs: State, rhs: State) -> Bool {
-            lhs.showCheckInConfirmation == rhs.showCheckInConfirmation &&
-            lhs.showIntervalSelectionSheet == rhs.showIntervalSelectionSheet &&
-            lhs.currentTime == rhs.currentTime &&
-            lhs.lastCheckedIn == rhs.lastCheckedIn &&
-            lhs.checkInInterval == rhs.checkInInterval &&
-            lhs.selectedInterval == rhs.selectedInterval &&
-            lhs.isCheckingIn == rhs.isCheckingIn &&
-            lhs.isUpdatingInterval == rhs.isUpdatingInterval &&
-            (lhs.error != nil) == (rhs.error != nil)
-        }
     }
 
     /// The actions for the check-in feature
+    @CasePathable
     enum Action: Equatable, Sendable {
         /// Set whether to show the check-in confirmation alert
         case setShowCheckInConfirmation(Bool)
@@ -94,23 +81,28 @@ struct CheckInFeature {
         /// Update check-in data from user data
         case updateCheckInData(lastCheckedIn: Date, checkInInterval: TimeInterval)
 
-        /// Clear any error state
-        case clearError
+        /// Set error state
+        case setError(UserFacingError?)
 
         /// Delegate actions to parent feature
         case delegate(DelegateAction)
 
+        @CasePathable
         enum DelegateAction: Equatable, Sendable {
             /// Check-in was performed
             case checkInPerformed
 
             /// Check-in interval was updated
             case checkInIntervalUpdated
+
+            /// Error occurred
+            case errorOccurred(UserFacingError)
         }
     }
 
     // MARK: - Dependencies
     @Dependency(\.timeFormatter) var timeFormatter
+    @Dependency(\.date.now) var now
 
     var body: some ReducerOf<Self> {
         Reduce { state, action in
@@ -128,7 +120,7 @@ struct CheckInFeature {
                 return .none
 
             case .updateCurrentTime:
-                state.currentTime = Date()
+                state.currentTime = now
                 return .none
 
             case let .updateSelectedInterval(interval):
@@ -154,8 +146,12 @@ struct CheckInFeature {
                 state.checkInInterval = checkInInterval
                 return .none
 
-            case .clearError:
-                state.error = nil
+            case let .setError(error):
+                state.error = error
+                if let error = error {
+                    // If there's an error, notify the parent
+                    return .send(.delegate(.errorOccurred(error)))
+                }
                 return .none
 
             case .delegate:
@@ -170,7 +166,7 @@ struct CheckInFeature {
     /// Calculate the check-in progress for the progress circle
     /// - Returns: The progress value (0.0 to 1.0)
     func calculateCheckInProgress(_ state: State) -> Double {
-        let elapsed = Date().timeIntervalSince(state.lastCheckedIn)
+        let elapsed = now.timeIntervalSince(state.lastCheckedIn)
         let progress = elapsed / state.checkInInterval
         return min(max(progress, 0.0), 1.0)
     }

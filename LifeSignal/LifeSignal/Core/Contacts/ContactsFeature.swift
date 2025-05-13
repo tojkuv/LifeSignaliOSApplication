@@ -12,7 +12,7 @@ import Dependencies
 struct ContactsFeature {
     /// Cancellation IDs for long-running effects
     enum CancelID: Hashable, Sendable {
-        case contactsStream
+        // No longer need contactsStream as it's handled at the AppFeature level
     }
 
     /// The state of the contacts feature
@@ -23,8 +23,6 @@ struct ContactsFeature {
 
         // MARK: - Status
         var isLoading: Bool = false
-        var error: UserFacingError? = nil
-        var isStreamActive: Bool = false
 
         // MARK: - Computed Properties
         var responders: IdentifiedArrayOf<ContactData> {
@@ -46,44 +44,34 @@ struct ContactsFeature {
         // MARK: - Initialization
         init(
             contacts: IdentifiedArrayOf<ContactData> = [],
-            isLoading: Bool = false,
-            error: UserFacingError? = nil,
-            isStreamActive: Bool = false
+            isLoading: Bool = false
         ) {
             self.contacts = contacts
             self.isLoading = isLoading
-            self.error = error
-            self.isStreamActive = isStreamActive
         }
     }
 
     /// Actions that can be performed on the contacts feature
+    @CasePathable
     enum Action: Equatable, Sendable {
         // MARK: - Data Loading
         case loadContacts
-        case loadContactsResponse(TaskResult<[ContactData]>)
-        case startContactsStream
+        case contactsLoaded([ContactData])
+        case contactsLoadFailed(UserFacingError)
         case contactsUpdated([ContactData])
-        case contactsStreamFailed(Error)
-        case stopContactsStream
-        case setError(UserFacingError?)
-        case setLoading(Bool)
 
         // MARK: - Contact Management
         case updateContactRoles(id: String, isResponder: Bool, isDependent: Bool)
-        case updateContactRolesResponse(TaskResult<Bool>)
+        case contactRolesUpdated
+        case contactRolesUpdateFailed(UserFacingError)
         case deleteContact(id: String)
-        case deleteContactResponse(TaskResult<Bool>)
+        case contactDeleted
+        case contactDeleteFailed(UserFacingError)
 
-        // MARK: - Ping Operations
-        case pingDependent(id: String)
-        case pingDependentResponse(TaskResult<Bool>)
-        case clearPing(id: String)
-        case clearPingResponse(TaskResult<Bool>)
-        case respondToPing(id: String)
-        case respondToPingResponse(TaskResult<Bool>)
-        case respondToAllPings
-        case respondToAllPingsResponse(TaskResult<Bool>)
+        // MARK: - Ping Operations (Delegated to PingFeature)
+        case updateContactPingStatus(id: String, hasOutgoingPing: Bool, outgoingPingTimestamp: Date?)
+        case updateContactPingResponseStatus(id: String, hasIncomingPing: Bool, incomingPingTimestamp: Date?)
+        case updateAllContactsResponseStatus
 
         // MARK: - Delegate Actions
         case delegate(DelegateAction)
@@ -183,43 +171,43 @@ struct ContactsFeature {
 
             case .loadContacts:
                 state.isLoading = true
-                state.error = nil
 
                 return .run { [firebaseContactsClient, firebaseAuth] send in
                     do {
+                        // Get the authenticated user ID or throw if not available
                         let userId = try await firebaseAuth.currentUserId()
 
+                        // Get contacts using the client
                         let contacts = try await firebaseContactsClient.getContacts(userId)
-                        await send(.loadContactsResponse(.success(contacts)))
+
+                        // Format time strings for each contact
+                        let formattedContacts = formatContactTimeStrings(contacts)
+                        await send(.contactsLoaded(formattedContacts))
                     } catch {
+                        // Map the error to a user-facing error
                         let userFacingError = UserFacingError.from(error)
-                        await send(.loadContactsResponse(.failure(userFacingError)))
+
+                        // Handle error directly in the effect
+                        await send(.contactsLoadFailed(userFacingError))
+
+                        // Notify delegate about the failure with the user-facing error
+                        await send(.delegate(.contactsLoadFailed(userFacingError)))
                     }
                 }
 
-            case let .loadContactsResponse(result):
+            case let .contactsLoaded(contacts):
+                state.isLoading = false
+                state.contacts = IdentifiedArray(uniqueElements: contacts)
+
+                // Notify delegate that contacts were updated
+                return .send(.delegate(.contactsUpdated))
+
+            case let .contactsLoadFailed(error):
                 state.isLoading = false
 
-                switch result {
-                case let .success(contacts):
-                    // Format time strings for each contact
-                    let formattedContacts = formatContactTimeStrings(contacts)
-                    state.contacts = IdentifiedArray(uniqueElements: formattedContacts)
-
-                    // Notify delegate that contacts were updated
-                    return .send(.delegate(.contactsUpdated))
-
-                case let .failure(error):
-                    state.error = error
-
-                    // Notify delegate that contacts loading failed
-                    return .send(.delegate(.contactsLoadFailed(error)))
-                }
-
-            case .startContactsStream:
-                // This action is now handled by the AppFeature
-                // Just mark the stream as active
-                state.isStreamActive = true
+                // Log the error but don't take any additional action
+                // The parent feature will handle displaying the error to the user
+                FirebaseLogger.contacts.error("Contacts loading failed: \(error)")
                 return .none
 
             case let .contactsUpdated(contacts):
@@ -229,33 +217,6 @@ struct ContactsFeature {
 
                 // Notify delegate that contacts were updated
                 return .send(.delegate(.contactsUpdated))
-
-            case let .contactsStreamFailed(error):
-                // Only update error state for persistent errors
-                if let nsError = error as NSError?,
-                   nsError.domain != FirestoreErrorDomain ||
-                   nsError.code != FirestoreErrorCode.unavailable.rawValue {
-                    let userFacingError = UserFacingError.from(error)
-                    state.error = userFacingError
-
-                    // Notify delegate that contacts loading failed
-                    return .send(.delegate(.contactsLoadFailed(userFacingError)))
-                }
-                return .none
-
-            case .stopContactsStream:
-                // This action is now handled by the AppFeature
-                // Just mark the stream as inactive
-                state.isStreamActive = false
-                return .none
-
-            case let .setError(error):
-                state.error = error
-                return .none
-
-            case let .setLoading(isLoading):
-                state.isLoading = isLoading
-                return .none
 
             // MARK: - Contact Management
 
@@ -270,42 +231,44 @@ struct ContactsFeature {
 
                 return .run { [firebaseContactsClient, firebaseAuth] send in
                     do {
+                        // Get the authenticated user ID or throw if not available
                         let userId = try await firebaseAuth.currentUserId()
 
-                        // Call the Firebase function to update the contact roles
+                        // Update the contact roles using the client
                         try await firebaseContactsClient.updateContact(
-                            userId: userId,
-                            contactId: id,
-                            fields: [
+                            userId,
+                            id,
+                            [
                                 FirestoreConstants.ContactFields.isResponder: isResponder,
                                 FirestoreConstants.ContactFields.isDependent: isDependent
                             ]
                         )
 
-                        await send(.updateContactRolesResponse(.success(true)))
+                        // Send success response
+                        await send(.contactRolesUpdated)
                     } catch {
+                        // Map the error to a user-facing error
                         let userFacingError = UserFacingError.from(error)
-                        await send(.updateContactRolesResponse(.failure(userFacingError)))
+
+                        // Handle error directly in the effect
+                        await send(.contactRolesUpdateFailed(userFacingError))
+
+                        // Reload contacts to revert changes if there was an error
+                        await send(.loadContacts)
                     }
                 }
 
-            case let .updateContactRolesResponse(result):
+            case .contactRolesUpdated:
+                state.isLoading = false
+                // Notify delegate that contacts were updated
+                return .send(.delegate(.contactsUpdated))
+
+            case let .contactRolesUpdateFailed(error):
                 state.isLoading = false
 
-                switch result {
-                case .success:
-                    // Notify delegate that contacts were updated
-                    return .send(.delegate(.contactsUpdated))
-
-                case let .failure(error):
-                    state.error = error
-
-                    // Reload contacts to revert changes if there was an error
-                    return .concatenate(
-                        .send(.loadContacts),
-                        .send(.delegate(.contactsLoadFailed(error)))
-                    )
-                }
+                // Log the error
+                FirebaseLogger.contacts.error("Contact roles update failed: \(error)")
+                return .none
 
             case let .deleteContact(id):
                 // Remove from local state immediately for better UX
@@ -314,243 +277,91 @@ struct ContactsFeature {
 
                 return .run { [firebaseContactsClient, firebaseAuth] send in
                     do {
+                        // Get the authenticated user ID or throw if not available
                         let userId = try await firebaseAuth.currentUserId()
 
-                        try await firebaseContactsClient.deleteContact(userId: userId, contactId: id)
-                        await send(.deleteContactResponse(.success(true)))
+                        // Delete the contact using the client
+                        try await firebaseContactsClient.deleteContact(userId, id)
+
+                        // Send success response
+                        await send(.contactDeleted)
                     } catch {
+                        // Map the error to a user-facing error
                         let userFacingError = UserFacingError.from(error)
-                        await send(.deleteContactResponse(.failure(userFacingError)))
+
+                        // Handle error directly in the effect
+                        await send(.contactDeleteFailed(userFacingError))
+
+                        // Reload contacts to revert changes if there was an error
+                        await send(.loadContacts)
                     }
                 }
 
-            case let .deleteContactResponse(result):
+            case .contactDeleted:
+                state.isLoading = false
+                // Notify delegate that contacts were updated
+                return .send(.delegate(.contactsUpdated))
+
+            case let .contactDeleteFailed(error):
                 state.isLoading = false
 
-                switch result {
-                case .success:
-                    // Notify delegate that contacts were updated
-                    return .send(.delegate(.contactsUpdated))
+                // Log the error
+                FirebaseLogger.contacts.error("Contact delete failed: \(error)")
+                return .none
 
-                case let .failure(error):
-                    state.error = error
+            // MARK: - Ping Operations (Delegated to PingFeature)
 
-                    // Reload contacts to revert changes if there was an error
-                    return .concatenate(
-                        .send(.loadContacts),
-                        .send(.delegate(.contactsLoadFailed(error)))
-                    )
-                }
-
-            // MARK: - Ping Operations
-
-            case let .pingDependent(id):
-                // Update local state immediately for better UX
+            case let .updateContactPingStatus(id, hasOutgoingPing, outgoingPingTimestamp):
+                // Update the contact's ping status
                 if let index = state.contacts.index(id: id) {
-                    state.contacts[index].hasOutgoingPing = true
-                    state.contacts[index].outgoingPingTimestamp = Date()
+                    state.contacts[index].hasOutgoingPing = hasOutgoingPing
+                    state.contacts[index].outgoingPingTimestamp = outgoingPingTimestamp
 
-                    // Format the outgoing ping time
-                    state.contacts[index].formattedOutgoingPingTime = timeFormatter.formatTimeAgo(state.contacts[index].outgoingPingTimestamp!)
-                }
-
-                state.isLoading = true
-
-                return .run { [firebaseAuth] send in
-                    do {
-                        _ = try await firebaseAuth.currentUserId()
-
-                        // Call the Firebase function to ping the dependent
-                        let data: [String: Any] = [
-                            "dependentId": id
-                        ]
-
-                        let functions = Functions.functions()
-                        let result = try await functions.httpsCallable("pingDependent").call(data)
-
-                        guard let _ = result.data as? [String: Any] else {
-                            throw FirebaseError.invalidData
-                        }
-
-                        await send(.pingDependentResponse(.success(true)))
-                    } catch {
-                        let userFacingError = UserFacingError.from(error)
-                        await send(.pingDependentResponse(.failure(userFacingError)))
+                    // Format the outgoing ping time if it exists
+                    if let timestamp = outgoingPingTimestamp {
+                        state.contacts[index].formattedOutgoingPingTime = timeFormatter.formatTimeAgo(timestamp)
+                    } else {
+                        state.contacts[index].formattedOutgoingPingTime = nil
                     }
                 }
 
-            case let .pingDependentResponse(result):
-                state.isLoading = false
+                // Notify delegate that contacts were updated
+                return .send(.delegate(.contactsUpdated))
 
-                switch result {
-                case .success:
-                    // Notify delegate that contacts were updated
-                    return .send(.delegate(.contactsUpdated))
-
-                case let .failure(error):
-                    state.error = error
-
-                    // Reload contacts to revert changes if there was an error
-                    return .concatenate(
-                        .send(.loadContacts),
-                        .send(.delegate(.contactsLoadFailed(error)))
-                    )
-                }
-
-            case let .clearPing(id):
-                // Update local state immediately for better UX
+            case let .updateContactPingResponseStatus(id, hasIncomingPing, incomingPingTimestamp):
+                // Update the contact's ping response status
                 if let index = state.contacts.index(id: id) {
-                    state.contacts[index].hasOutgoingPing = false
-                    state.contacts[index].outgoingPingTimestamp = nil
-                    state.contacts[index].formattedOutgoingPingTime = nil
-                }
+                    state.contacts[index].hasIncomingPing = hasIncomingPing
+                    state.contacts[index].incomingPingTimestamp = incomingPingTimestamp
 
-                state.isLoading = true
-
-                return .run { [firebaseAuth] send in
-                    do {
-                        let userId = try await firebaseAuth.currentUserId()
-
-                        // Call the Firebase function to clear the ping
-                        let data: [String: Any] = [
-                            "userId": userId,
-                            "contactId": id
-                        ]
-
-                        let functions = Functions.functions()
-                        let result = try await functions.httpsCallable("clearPing").call(data)
-
-                        guard let _ = result.data as? [String: Any] else {
-                            throw FirebaseError.invalidData
-                        }
-
-                        await send(.clearPingResponse(.success(true)))
-                    } catch {
-                        let userFacingError = UserFacingError.from(error)
-                        await send(.clearPingResponse(.failure(userFacingError)))
+                    // Format the incoming ping time if it exists
+                    if let timestamp = incomingPingTimestamp {
+                        state.contacts[index].formattedIncomingPingTime = timeFormatter.formatTimeAgo(timestamp)
+                    } else {
+                        state.contacts[index].formattedIncomingPingTime = nil
                     }
                 }
 
-            case let .clearPingResponse(result):
-                state.isLoading = false
+                // Notify delegate that contacts were updated
+                return .send(.delegate(.contactsUpdated))
 
-                switch result {
-                case .success:
-                    // Notify delegate that contacts were updated
-                    return .send(.delegate(.contactsUpdated))
-
-                case let .failure(error):
-                    state.error = error
-
-                    // Reload contacts to revert changes if there was an error
-                    return .concatenate(
-                        .send(.loadContacts),
-                        .send(.delegate(.contactsLoadFailed(error)))
-                    )
-                }
-
-            case let .respondToPing(id):
-                // Update local state immediately for better UX
-                if let index = state.contacts.index(id: id) {
-                    state.contacts[index].hasIncomingPing = false
-                    state.contacts[index].incomingPingTimestamp = nil
-                    state.contacts[index].formattedIncomingPingTime = nil
-                }
-
-                state.isLoading = true
-
-                return .run { [firebaseAuth] send in
-                    do {
-                        _ = try await firebaseAuth.currentUserId()
-
-                        // Call the Firebase function to respond to the ping
-                        let data: [String: Any] = [
-                            "responderId": id
-                        ]
-
-                        let functions = Functions.functions()
-                        let result = try await functions.httpsCallable("respondToPing").call(data)
-
-                        guard let _ = result.data as? [String: Any] else {
-                            throw FirebaseError.invalidData
-                        }
-
-                        await send(.respondToPingResponse(.success(true)))
-                    } catch {
-                        let userFacingError = UserFacingError.from(error)
-                        await send(.respondToPingResponse(.failure(userFacingError)))
-                    }
-                }
-
-            case let .respondToPingResponse(result):
-                state.isLoading = false
-
-                switch result {
-                case .success:
-                    // Notify delegate that contacts were updated
-                    return .send(.delegate(.contactsUpdated))
-
-                case let .failure(error):
-                    state.error = error
-
-                    // Reload contacts to revert changes if there was an error
-                    return .concatenate(
-                        .send(.loadContacts),
-                        .send(.delegate(.contactsLoadFailed(error)))
-                    )
-                }
-
-            case .respondToAllPings:
-                // Update local state immediately for better UX
+            case .updateAllContactsResponseStatus:
+                // Update all contacts to clear incoming pings
                 for i in state.contacts.indices where state.contacts[i].hasIncomingPing {
                     state.contacts[i].hasIncomingPing = false
                     state.contacts[i].incomingPingTimestamp = nil
                     state.contacts[i].formattedIncomingPingTime = nil
                 }
 
-                state.isLoading = true
-
-                return .run { [firebaseAuth] send in
-                    do {
-                        _ = try await firebaseAuth.currentUserId()
-
-                        // Call the Firebase function to respond to all pings
-                        let functions = Functions.functions()
-                        let result = try await functions.httpsCallable("respondToAllPings").call(nil)
-
-                        guard let _ = result.data as? [String: Any] else {
-                            throw FirebaseError.invalidData
-                        }
-
-                        await send(.respondToAllPingsResponse(.success(true)))
-                    } catch {
-                        let userFacingError = UserFacingError.from(error)
-                        await send(.respondToAllPingsResponse(.failure(userFacingError)))
-                    }
-                }
-
-            case let .respondToAllPingsResponse(result):
-                state.isLoading = false
-
-                switch result {
-                case .success:
-                    // Notify delegate that contacts were updated
-                    return .send(.delegate(.contactsUpdated))
-
-                case let .failure(error):
-                    state.error = error
-
-                    // Reload contacts to revert changes if there was an error
-                    return .concatenate(
-                        .send(.loadContacts),
-                        .send(.delegate(.contactsLoadFailed(error)))
-                    )
-                }
+                // Notify delegate that contacts were updated
+                return .send(.delegate(.contactsUpdated))
 
             case .delegate:
                 // These actions are handled by the parent feature
                 return .none
             }
         }
+
+        ._printChanges()
     }
 }

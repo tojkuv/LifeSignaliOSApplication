@@ -67,8 +67,6 @@ struct ContactDetailsSheetFeature {
 
         /// Actions that will be delegated to parent feature
         enum DelegateAction: Equatable, Sendable {
-            /// Ping a dependent
-            case pingDependent(id: String)
             /// Send a manual alert to a dependent
             case sendManualAlert(id: String)
             /// Cancel a manual alert for a dependent

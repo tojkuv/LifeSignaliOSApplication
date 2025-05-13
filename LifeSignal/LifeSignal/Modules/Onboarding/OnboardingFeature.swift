@@ -1,6 +1,7 @@
 import Foundation
 import ComposableArchitecture
 import FirebaseAuth
+import Dependencies
 
 /// Feature for managing the onboarding process
 @Reducer
@@ -15,21 +16,10 @@ struct OnboardingFeature {
         /// UI state
         var isLoading: Bool = false
         var isComplete: Bool = false
-
-        /// Error state
-        var error: Error?
-
-        /// Custom Equatable implementation to handle Error? property
-        static func == (lhs: State, rhs: State) -> Bool {
-            lhs.name == rhs.name &&
-            lhs.emergencyNote == rhs.emergencyNote &&
-            lhs.isLoading == rhs.isLoading &&
-            lhs.isComplete == rhs.isComplete &&
-            (lhs.error != nil) == (rhs.error != nil)
-        }
     }
 
     /// Actions that can be performed on the onboarding feature
+    @CasePathable
     enum Action: Equatable, Sendable {
         /// Input field actions
         case nameChanged(String)
@@ -39,11 +29,13 @@ struct OnboardingFeature {
         case completeSetupButtonTapped
 
         /// Response actions
-        case profileUpdateResponse(TaskResult<Void>)
+        case profileUpdateSucceeded
+        case profileUpdateFailed(UserFacingError)
 
         /// Delegate actions for parent features
         case delegate(DelegateAction)
 
+        @CasePathable
         enum DelegateAction: Equatable, Sendable {
             case onboardingCompleted
         }
@@ -72,30 +64,47 @@ struct OnboardingFeature {
                 let profileUpdate = ProfileUpdate(name: state.name, emergencyNote: state.emergencyNote)
 
                 return .run { [firebaseUserClient, firebaseAuth] send in
-                    let result = await TaskResult {
+                    do {
+                        // Get the authenticated user ID or throw if not available
                         let userId = try await firebaseAuth.currentUserId()
 
-                        try await firebaseUserClient.updateProfile(userId, profileUpdate)
+                        // Update the profile using the client
+                        let success = try await firebaseUserClient.updateProfile(userId, profileUpdate)
+
+                        if success {
+                            // Send success response
+                            await send(.profileUpdateSucceeded)
+                        } else {
+                            // Handle the case where the operation returned false but didn't throw
+                            let userFacingError = UserFacingError.operationFailed
+                            await send(.profileUpdateFailed(userFacingError))
+                        }
+                    } catch {
+                        // Map the error to a user-facing error
+                        let userFacingError = UserFacingError.from(error)
+
+                        // Handle error directly in the effect
+                        await send(.profileUpdateFailed(userFacingError))
                     }
-                    await send(.profileUpdateResponse(result))
                 }
 
-            case let .profileUpdateResponse(result):
+            case .profileUpdateSucceeded:
+                state.isLoading = false
+                state.isComplete = true
+                return .send(.delegate(.onboardingCompleted))
+
+            case let .profileUpdateFailed(error):
                 state.isLoading = false
 
-                switch result {
-                case .success:
-                    state.isComplete = true
-                    return .send(.delegate(.onboardingCompleted))
-
-                case let .failure(error):
-                    state.error = error
-                    return .none
-                }
+                // Log the error
+                FirebaseLogger.user.error("Profile update failed during onboarding: \(error)")
+                return .none
 
             case .delegate:
                 return .none
             }
         }
+
+        ._printChanges()
     }
 }

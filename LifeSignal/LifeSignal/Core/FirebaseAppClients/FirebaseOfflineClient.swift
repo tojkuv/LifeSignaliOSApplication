@@ -10,25 +10,33 @@ import OSLog
 @DependencyClient
 struct FirebaseOfflineManager: Sendable {
     /// Enable offline persistence
-    var enableOfflinePersistence: @Sendable () async -> Void
+    var enableOfflinePersistence: @Sendable () async -> Void = { }
 
     /// Disable network
-    var disableNetwork: @Sendable () async throws -> Void
+    var disableNetwork: @Sendable () async throws -> Void = {
+        throw FirebaseError.operationFailed
+    }
 
     /// Enable network
-    var enableNetwork: @Sendable () async throws -> Void
+    var enableNetwork: @Sendable () async throws -> Void = {
+        throw FirebaseError.operationFailed
+    }
 
     /// Check if network is enabled
-    var isNetworkEnabled: @Sendable () async -> Bool
+    var isNetworkEnabled: @Sendable () async -> Bool = { true }
 
     /// Wait for pending writes to be acknowledged
-    var waitForPendingWrites: @Sendable () async throws -> Void
+    var waitForPendingWrites: @Sendable () async throws -> Void = {
+        throw FirebaseError.operationFailed
+    }
 
     /// Clear persistence
-    var clearPersistence: @Sendable () async throws -> Void
+    var clearPersistence: @Sendable () async throws -> Void = {
+        throw FirebaseError.operationFailed
+    }
 
     /// Set cache size
-    var setCacheSize: @Sendable (Int64) async -> Void
+    var setCacheSize: @Sendable (Int64) async -> Void = { _ in }
 }
 
 // MARK: - Live Implementation

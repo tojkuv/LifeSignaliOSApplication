@@ -40,26 +40,6 @@ struct ProfileFeature {
         init(userData: UserData) {
             self.userData = userData
         }
-
-        /// Custom Equatable implementation to handle Error? property
-        static func == (lhs: State, rhs: State) -> Bool {
-            lhs.userData == rhs.userData &&
-            lhs.qrCodeShare == rhs.qrCodeShare &&
-            lhs.showEditNameSheet == rhs.showEditNameSheet &&
-            lhs.editingName == rhs.editingName &&
-            lhs.showEditDescriptionSheet == rhs.showEditDescriptionSheet &&
-            lhs.editingDescription == rhs.editingDescription &&
-            lhs.showEditPhoneSheet == rhs.showEditPhoneSheet &&
-            lhs.editingPhone == rhs.editingPhone &&
-            lhs.editingPhoneRegion == rhs.editingPhoneRegion &&
-            lhs.showEditAvatarSheet == rhs.showEditAvatarSheet &&
-            lhs.showSignOutConfirmation == rhs.showSignOutConfirmation &&
-            lhs.showFirebaseTest == rhs.showFirebaseTest &&
-            lhs.isChangingPhoneNumber == rhs.isChangingPhoneNumber &&
-            lhs.verificationID == rhs.verificationID &&
-            lhs.verificationCode == rhs.verificationCode &&
-            lhs.isCodeSent == rhs.isCodeSent
-        }
     }
 
     /// Actions that can be performed on the profile feature
@@ -176,20 +156,13 @@ struct ProfileFeature {
 
             case .signOut:
                 return .run { [firebaseAuth] send in
-                    let result = await TaskResult {
+                    do {
                         try await firebaseAuth.signOut()
+                        await send(.delegate(.userSignedOut))
+                    } catch {
+                        // Handle error locally
+                        // In a real app, we would show an error alert here
                     }
-                    await send(.signOutResponse(result))
-                }
-
-            case let .signOutResponse(result):
-                switch result {
-                case .success:
-                    return .send(.delegate(.userSignedOut))
-
-                case let .failure(error):
-                    // Handle error locally
-                    return .none
                 }
 
             // MARK: - Profile UI Actions
@@ -241,11 +214,15 @@ struct ProfileFeature {
 
             case .sendPhoneChangeVerificationCode:
                 return .run { [phoneNumber = state.editingPhone, phoneRegion = state.editingPhoneRegion, phoneFormatter, firebaseAuth] send in
-                    let result = await TaskResult {
+                    do {
                         let formattedPhoneNumber = phoneFormatter.formatPhoneNumber(phoneNumber, region: phoneRegion)
-                        return try await firebaseAuth.verifyPhoneNumber(formattedPhoneNumber)
+                        let verificationID = try await firebaseAuth.verifyPhoneNumber(formattedPhoneNumber)
+                        await send(.sendPhoneChangeVerificationCodeResponse(.success(verificationID)))
+                    } catch {
+                        // Handle error locally
+                        // In a real app, we would show an error alert here
+                        await send(.sendPhoneChangeVerificationCodeResponse(.failure(error)))
                     }
-                    await send(.sendPhoneChangeVerificationCodeResponse(result))
                 }
 
             case let .sendPhoneChangeVerificationCodeResponse(result):
@@ -254,7 +231,7 @@ struct ProfileFeature {
                     state.verificationID = verificationID
                     state.isCodeSent = true
                     return .none
-                case let .failure(error):
+                case .failure:
                     // Handle error locally
                     return .none
                 }
@@ -263,7 +240,7 @@ struct ProfileFeature {
 
             case .verifyPhoneChangeCode:
                 return .run { [verificationID = state.verificationID, verificationCode = state.verificationCode, firebaseAuth] send in
-                    let result = await TaskResult {
+                    do {
                         // Create credential using the auth client
                         let credential = firebaseAuth.phoneAuthCredential(
                             verificationID: verificationID,
@@ -273,16 +250,19 @@ struct ProfileFeature {
                         // Update phone number with the credential
                         try await firebaseAuth.updatePhoneNumber(credential)
 
-                        return true
+                        await send(.verifyPhoneChangeCodeResponse(.success(true)))
+                    } catch {
+                        // Handle error locally
+                        // In a real app, we would show an error alert here
+                        await send(.verifyPhoneChangeCodeResponse(.failure(error)))
                     }
-                    await send(.verifyPhoneChangeCodeResponse(result))
                 }
 
             case let .verifyPhoneChangeCodeResponse(result):
                 switch result {
                 case .success:
                     return .send(.updateUserPhoneNumber)
-                case let .failure(error):
+                case .failure:
                     // Handle error locally
                     return .none
                 }

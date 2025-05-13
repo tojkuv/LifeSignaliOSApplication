@@ -1,7 +1,6 @@
 import SwiftUI
 import UIKit
 import ComposableArchitecture
-import LifeSignal
 
 /// A SwiftUI view for displaying a responder card using TCA
 struct ResponderCardView: View {
@@ -36,7 +35,7 @@ struct ResponderCardView: View {
             // Trailing content (respond to ping button)
             if currentContact.hasIncomingPing {
                 Button {
-                    store.send(.contacts(.respondToPing(id: currentContact.id)))
+                    store.send(.ping(.respondToPing(id: currentContact.id)))
                 } label: {
                     Circle()
                         .fill(Color(UIColor.systemBackground))

@@ -10,22 +10,30 @@ import OSLog
 @DependencyClient
 struct FirebaseSessionClient: Sendable {
     /// Get the current session ID
-    var getCurrentSessionId: @Sendable () -> String?
+    var getCurrentSessionId: @Sendable () -> String? = { nil }
 
     /// Set the current session ID
-    var setCurrentSessionId: @Sendable (String) -> Void
+    var setCurrentSessionId: @Sendable (String) -> Void = { _ in }
 
     /// Clear the current session ID
-    var clearSessionId: @Sendable () -> Void
+    var clearSessionId: @Sendable () -> Void = { }
 
     /// Create a new session for a user
-    var createSession: @Sendable (String) async throws -> String
+    var createSession: @Sendable (String) async throws -> String = { _ in
+        throw FirebaseError.operationFailed
+    }
 
     /// Validate a session for a user
-    var validateSession: @Sendable (String, String) async throws -> Bool
+    var validateSession: @Sendable (String, String) async throws -> Bool = { _, _ in
+        throw FirebaseError.operationFailed
+    }
 
     /// Stream session changes for a user
-    var streamSessionChanges: @Sendable (String) -> AsyncStream<String?>
+    var streamSessionChanges: @Sendable (String) -> AsyncStream<String?> = { _ in
+        AsyncStream { continuation in
+            continuation.finish()
+        }
+    }
 }
 
 // MARK: - Live Implementation

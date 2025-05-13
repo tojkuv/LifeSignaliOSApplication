@@ -1,6 +1,5 @@
 import SwiftUI
 import UIKit
-import LifeSignal
 import ComposableArchitecture
 
 /// A SwiftUI view for displaying a dependent card

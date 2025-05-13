@@ -47,6 +47,7 @@ struct RespondersFeature {
 
         // MARK: - Parent Feature Actions
         case contacts(ContactsFeature.Action)
+        case ping(PingFeature.Action)
 
         // MARK: - UI Actions
         case setContactAddedAlert(Bool)
@@ -85,6 +86,17 @@ struct RespondersFeature {
 
         Scope(state: \.addContact, action: \.addContact) {
             AddContactFeature()
+        }
+
+        // Forward ping actions to the AppFeature
+        Reduce { state, action in
+            switch action {
+            case .ping:
+                // Forward ping actions to the AppFeature
+                return .none
+            default:
+                return .none
+            }
         }
 
         Reduce { state, action in

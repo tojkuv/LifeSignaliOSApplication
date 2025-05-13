@@ -1,5 +1,6 @@
 import Foundation
 import ComposableArchitecture
+import Dependencies
 
 /// Feature for the dependents screen
 /// This feature is a child of ContactsFeature and focuses on dependent-specific UI and operations
@@ -13,7 +14,7 @@ struct DependentsFeature {
 
         /// UI State
         var isLoading: Bool = false
-        var error: Error? = nil
+        var error: UserFacingError? = nil
 
         /// Child feature states
         var contactDetails: ContactDetailsSheetFeature.State = .init()
@@ -30,17 +31,22 @@ struct DependentsFeature {
     }
 
     /// Actions that can be performed on the dependents feature
+    @CasePathable
     enum Action: Equatable, Sendable {
         // MARK: - Lifecycle Actions
         case onAppear
 
+        // MARK: - State Management
+        case setLoading(Bool)
+        case setError(UserFacingError?)
+
         // MARK: - Parent Feature Actions
         case contacts(ContactsFeature.Action)
+        case ping(PingFeature.Action)
 
         // MARK: - UI Actions
         case setShowQRScanner(Bool)
         case selectContact(ContactData?)
-        case setError(Error?)
 
         // MARK: - Child Feature Actions
         case contactDetails(ContactDetailsSheetFeature.Action)
@@ -50,8 +56,10 @@ struct DependentsFeature {
         // MARK: - Delegate Actions
         case delegate(DelegateAction)
 
+        @CasePathable
         enum DelegateAction: Equatable, Sendable {
             case contactsUpdated
+            case errorOccurred(UserFacingError)
         }
     }
 
@@ -75,16 +83,37 @@ struct DependentsFeature {
             AddContactFeature()
         }
 
+        // Forward ping actions to the AppFeature
+        Reduce { state, action in
+            switch action {
+            case .ping:
+                // Forward ping actions to the AppFeature
+                return .none
+            default:
+                return .none
+            }
+        }
+
         Reduce { state, action in
             switch action {
             // MARK: - Lifecycle Actions
 
             case .onAppear:
-                // Start by loading contacts and starting the stream
-                return .concatenate(
-                    .send(.contacts(.loadContacts)),
-                    .send(.contacts(.startContactsStream))
-                )
+                // Start by loading contacts - stream is now handled at the AppFeature level
+                return .send(.contacts(.loadContacts))
+
+            // MARK: - State Management
+
+            case let .setLoading(isLoading):
+                state.isLoading = isLoading
+                return .none
+
+            case let .setError(error):
+                state.error = error
+                if let error = error {
+                    return .send(.delegate(.errorOccurred(error)))
+                }
+                return .none
 
             // MARK: - Parent Feature Actions
 
@@ -97,17 +126,13 @@ struct DependentsFeature {
                 // Contacts loading failed, update error state
                 state.error = error
                 state.isLoading = false
-                return .send(.setError(error))
+                return .send(.delegate(.errorOccurred(error)))
 
             case .contacts:
                 // Other contacts actions are handled by the parent feature
                 return .none
 
             // MARK: - UI Actions
-
-            case let .setError(error):
-                state.error = error
-                return .none
 
             case let .setShowQRScanner(show):
                 state.qrScanner.showScanner = show
@@ -140,8 +165,9 @@ struct DependentsFeature {
             case .contactDetails:
                 return .none
 
-            case .qrScanner(.qrCodeScanned):
+            case .qrScanner(.qrCodeScanned(let code)):
                 // When a QR code is scanned, show the add contact sheet
+                state.addContact.qrCode = code
                 state.addContact.isSheetPresented = true
                 return .none
 

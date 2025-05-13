@@ -221,13 +221,21 @@ struct UserFeature {
                         let update = ProfileUpdate(name: name, emergencyNote: emergencyNote)
 
                         // Update the profile using the client
-                        try await firebaseUserClient.updateProfile(userId, update)
+                        let success = try await firebaseUserClient.updateProfile(userId, update)
 
-                        // Send success response
-                        await send(.updateProfileSucceeded)
+                        if success {
+                            // Send success response
+                            await send(.updateProfileSucceeded)
 
-                        // Notify delegate that profile was updated
-                        await send(.delegate(.profileUpdated))
+                            // Notify delegate that profile was updated
+                            await send(.delegate(.profileUpdated))
+                        } else {
+                            // Handle the case where the operation returned false but didn't throw
+                            let userFacingError = UserFacingError.operationFailed
+                            await send(.updateProfileFailed(userFacingError))
+                            await send(.delegate(.profileUpdateFailed(userFacingError)))
+                            await send(.loadUserData)
+                        }
                     } catch {
                         // Map the error to a user-facing error
                         let userFacingError = UserFacingError.from(error)
@@ -273,10 +281,18 @@ struct UserFeature {
                         )
 
                         // Update notification preferences using the client
-                        try await firebaseUserClient.updateNotificationPreferences(userId, preferences)
+                        let success = try await firebaseUserClient.updateNotificationPreferences(userId, preferences)
 
-                        // Send success response
-                        await send(.updateNotificationPreferencesSucceeded)
+                        if success {
+                            // Send success response
+                            await send(.updateNotificationPreferencesSucceeded)
+                        } else {
+                            // Handle the case where the operation returned false but didn't throw
+                            let userFacingError = UserFacingError.operationFailed
+                            await send(.updateNotificationPreferencesFailed(userFacingError))
+                            await send(.delegate(.notificationPreferencesUpdateFailed(userFacingError)))
+                            await send(.loadUserData)
+                        }
                     } catch {
                         // Map the error to a user-facing error
                         let userFacingError = UserFacingError.from(error)
@@ -324,52 +340,60 @@ struct UserFeature {
                         let userData = try await firebaseUserClient.getUserDocument(userId)
 
                         // Perform check-in using the client
-                        try await firebaseUserClient.checkIn(userId)
+                        let success = try await firebaseUserClient.checkIn(userId)
 
-                        // Show a confirmation notification
-                        let _ = try await firebaseNotification.showLocalNotification(
-                            title: "Check-in Successful",
-                            body: "Your check-in has been recorded. Next check-in due in \(timeFormatter.formatTimeIntervalWithFullUnits(checkInInterval)).",
-                            userInfo: ["type": "checkInConfirmation"]
-                        )
+                        if success {
+                            // Show a confirmation notification
+                            let _ = try await firebaseNotification.showLocalNotification(
+                                title: "Check-in Successful",
+                                body: "Your check-in has been recorded. Next check-in due in \(timeFormatter.formatTimeIntervalWithFullUnits(checkInInterval)).",
+                                userInfo: ["type": "checkInConfirmation"]
+                            )
 
-                        // Schedule reminder notifications if enabled
-                        if userData.notificationEnabled {
-                            // Cancel any existing scheduled notifications
-                            let identifiers = [
-                                "checkInReminder-\(userData.checkInExpiration.timeIntervalSince1970)-30",
-                                "checkInReminder-\(userData.checkInExpiration.timeIntervalSince1970)-120"
-                            ]
-                            await firebaseNotification.cancelScheduledNotifications(identifiers: identifiers)
+                            // Schedule reminder notifications if enabled
+                            if userData.notificationEnabled {
+                                // Cancel any existing scheduled notifications
+                                let identifiers = [
+                                    "checkInReminder-\(userData.checkInExpiration.timeIntervalSince1970)-30",
+                                    "checkInReminder-\(userData.checkInExpiration.timeIntervalSince1970)-120"
+                                ]
+                                await firebaseNotification.cancelScheduledNotifications(identifiers: identifiers)
 
-                            // Schedule new reminders
-                            let expirationDate = Date().addingTimeInterval(checkInInterval)
-                            var reminderIds: [String] = []
+                                // Schedule new reminders
+                                let expirationDate = Date().addingTimeInterval(checkInInterval)
+                                var reminderIds: [String] = []
 
-                            // Schedule 30-minute reminder if enabled
-                            if userData.notify30MinBefore {
-                                let reminderId = try await firebaseNotification.scheduleCheckInReminder(
-                                    expirationDate: expirationDate,
-                                    minutesBefore: 30
-                                )
-                                reminderIds.append(reminderId)
+                                // Schedule 30-minute reminder if enabled
+                                if userData.notify30MinBefore {
+                                    let reminderId = try await firebaseNotification.scheduleCheckInReminder(
+                                        expirationDate: expirationDate,
+                                        minutesBefore: 30
+                                    )
+                                    reminderIds.append(reminderId)
+                                }
+
+                                // Schedule 2-hour reminder if enabled
+                                if userData.notify2HoursBefore {
+                                    let reminderId = try await firebaseNotification.scheduleCheckInReminder(
+                                        expirationDate: expirationDate,
+                                        minutesBefore: 120
+                                    )
+                                    reminderIds.append(reminderId)
+                                }
                             }
 
-                            // Schedule 2-hour reminder if enabled
-                            if userData.notify2HoursBefore {
-                                let reminderId = try await firebaseNotification.scheduleCheckInReminder(
-                                    expirationDate: expirationDate,
-                                    minutesBefore: 120
-                                )
-                                reminderIds.append(reminderId)
-                            }
+                            // Send success response
+                            await send(.checkInSucceeded)
+
+                            // Notify delegate that check-in was performed
+                            await send(.delegate(.checkInPerformed(now)))
+                        } else {
+                            // Handle the case where the operation returned false but didn't throw
+                            let userFacingError = UserFacingError.operationFailed
+                            await send(.checkInFailed(userFacingError))
+                            await send(.delegate(.checkInFailed(userFacingError)))
+                            await send(.loadUserData)
                         }
-
-                        // Send success response
-                        await send(.checkInSucceeded)
-
-                        // Notify delegate that check-in was performed
-                        await send(.delegate(.checkInPerformed(now)))
                     } catch {
                         // Map the error to a user-facing error
                         let userFacingError = UserFacingError.from(error)
@@ -414,51 +438,59 @@ struct UserFeature {
                         let userData = try await firebaseUserClient.getUserDocument(userId)
 
                         // Update check-in interval using the client
-                        try await firebaseUserClient.updateCheckInInterval(userId, interval)
+                        let success = try await firebaseUserClient.updateCheckInInterval(userId, interval)
 
-                        // Cancel any existing scheduled notifications
-                        let identifiers = [
-                            "checkInReminder-\(userData.checkInExpiration.timeIntervalSince1970)-30",
-                            "checkInReminder-\(userData.checkInExpiration.timeIntervalSince1970)-120"
-                        ]
-                        await firebaseNotification.cancelScheduledNotifications(identifiers: identifiers)
+                        if success {
+                            // Cancel any existing scheduled notifications
+                            let identifiers = [
+                                "checkInReminder-\(userData.checkInExpiration.timeIntervalSince1970)-30",
+                                "checkInReminder-\(userData.checkInExpiration.timeIntervalSince1970)-120"
+                            ]
+                            await firebaseNotification.cancelScheduledNotifications(identifiers: identifiers)
 
-                        // Schedule new reminders if notifications are enabled
-                        if userData.notificationEnabled {
-                            let expirationDate = Date().addingTimeInterval(interval)
-                            var reminderIds: [String] = []
+                            // Schedule new reminders if notifications are enabled
+                            if userData.notificationEnabled {
+                                let expirationDate = Date().addingTimeInterval(interval)
+                                var reminderIds: [String] = []
 
-                            // Schedule 30-minute reminder if enabled
-                            if userData.notify30MinBefore {
-                                let reminderId = try await firebaseNotification.scheduleCheckInReminder(
-                                    expirationDate: expirationDate,
-                                    minutesBefore: 30
-                                )
-                                reminderIds.append(reminderId)
+                                // Schedule 30-minute reminder if enabled
+                                if userData.notify30MinBefore {
+                                    let reminderId = try await firebaseNotification.scheduleCheckInReminder(
+                                        expirationDate: expirationDate,
+                                        minutesBefore: 30
+                                    )
+                                    reminderIds.append(reminderId)
+                                }
+
+                                // Schedule 2-hour reminder if enabled
+                                if userData.notify2HoursBefore {
+                                    let reminderId = try await firebaseNotification.scheduleCheckInReminder(
+                                        expirationDate: expirationDate,
+                                        minutesBefore: 120
+                                    )
+                                    reminderIds.append(reminderId)
+                                }
                             }
 
-                            // Schedule 2-hour reminder if enabled
-                            if userData.notify2HoursBefore {
-                                let reminderId = try await firebaseNotification.scheduleCheckInReminder(
-                                    expirationDate: expirationDate,
-                                    minutesBefore: 120
-                                )
-                                reminderIds.append(reminderId)
-                            }
+                            // Show a notification about the updated interval
+                            let _ = try await firebaseNotification.showLocalNotification(
+                                title: "Check-in Interval Updated",
+                                body: "Your check-in interval has been updated to \(timeFormatter.formatTimeIntervalWithFullUnits(interval)).",
+                                userInfo: ["type": "intervalUpdate"]
+                            )
+
+                            // Send success response
+                            await send(.updateCheckInIntervalSucceeded)
+
+                            // Notify delegate that check-in interval was updated
+                            await send(.delegate(.checkInIntervalUpdated(interval)))
+                        } else {
+                            // Handle the case where the operation returned false but didn't throw
+                            let userFacingError = UserFacingError.operationFailed
+                            await send(.updateCheckInIntervalFailed(userFacingError))
+                            await send(.delegate(.checkInIntervalUpdateFailed(userFacingError)))
+                            await send(.loadUserData)
                         }
-
-                        // Show a notification about the updated interval
-                        let _ = try await firebaseNotification.showLocalNotification(
-                            title: "Check-in Interval Updated",
-                            body: "Your check-in interval has been updated to \(timeFormatter.formatTimeIntervalWithFullUnits(interval)).",
-                            userInfo: ["type": "intervalUpdate"]
-                        )
-
-                        // Send success response
-                        await send(.updateCheckInIntervalSucceeded)
-
-                        // Notify delegate that check-in interval was updated
-                        await send(.delegate(.checkInIntervalUpdated(interval)))
                     } catch {
                         // Map the error to a user-facing error
                         let userFacingError = UserFacingError.from(error)
@@ -496,10 +528,18 @@ struct UserFeature {
                         let userId = try await firebaseAuth.currentUserId()
 
                         // Trigger manual alert using the client
-                        try await firebaseUserClient.triggerManualAlert(userId)
+                        let success = try await firebaseUserClient.triggerManualAlert(userId)
 
-                        // Send success response
-                        await send(.triggerManualAlertSucceeded)
+                        if success {
+                            // Send success response
+                            await send(.triggerManualAlertSucceeded)
+                        } else {
+                            // Handle the case where the operation returned false but didn't throw
+                            let userFacingError = UserFacingError.operationFailed
+                            await send(.triggerManualAlertFailed(userFacingError))
+                            await send(.delegate(.manualAlertTriggerFailed(userFacingError)))
+                            await send(.loadUserData)
+                        }
                     } catch {
                         // Map the error to a user-facing error
                         let userFacingError = UserFacingError.from(error)
@@ -537,10 +577,18 @@ struct UserFeature {
                         let userId = try await firebaseAuth.currentUserId()
 
                         // Clear manual alert using the client
-                        try await firebaseUserClient.clearManualAlert(userId)
+                        let success = try await firebaseUserClient.clearManualAlert(userId)
 
-                        // Send success response
-                        await send(.clearManualAlertSucceeded)
+                        if success {
+                            // Send success response
+                            await send(.clearManualAlertSucceeded)
+                        } else {
+                            // Handle the case where the operation returned false but didn't throw
+                            let userFacingError = UserFacingError.operationFailed
+                            await send(.clearManualAlertFailed(userFacingError))
+                            await send(.delegate(.manualAlertClearFailed(userFacingError)))
+                            await send(.loadUserData)
+                        }
                     } catch {
                         // Map the error to a user-facing error
                         let userFacingError = UserFacingError.from(error)

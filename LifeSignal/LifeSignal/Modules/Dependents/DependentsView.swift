@@ -27,8 +27,8 @@ struct DependentsView: View {
                             DependentCardView(
                                 dependent: dependent,
                                 onTap: { store.send(.selectContact(dependent)) },
-                                onPing: { store.send(.contacts(.pingDependent(id: dependent.id))) },
-                                onClearPing: { store.send(.contacts(.clearPing(id: dependent.id))) },
+                                onPing: { store.send(.ping(.pingDependent(id: dependent.id))) },
+                                onClearPing: { store.send(.ping(.clearPing(id: dependent.id))) },
                                 isDisabled: store.isLoading
                             )
                         }

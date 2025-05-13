@@ -42,6 +42,7 @@ struct AppFeature {
         /// New feature states
         var alert = AlertFeature.State()
         var notification = NotificationFeature.State()
+        var ping = PingFeature.State()
 
         /// Onboarding feature state
         var onboarding = OnboardingFeature.State()
@@ -85,6 +86,7 @@ struct AppFeature {
         /// New feature actions
         case alert(AlertFeature.Action)
         case notification(NotificationFeature.Action)
+        case ping(PingFeature.Action)
 
         /// Onboarding feature actions
         case onboarding(OnboardingFeature.Action)
@@ -143,6 +145,7 @@ struct AppFeature {
     @Dependency(\.firebaseSessionClient) var firebaseSessionClient
     @Dependency(\.firebaseUserClient) var firebaseUserClient
     @Dependency(\.firebaseContactsClient) var firebaseContactsClient
+    @Dependency(\.firestoreStorage) var firestoreStorage
 
     /// The body of the reducer
     var body: some ReducerOf<Self> {
@@ -390,6 +393,22 @@ struct AppFeature {
             case let .home(.delegate(.updateCheckInInterval(interval))):
                 return .send(.user(.updateCheckInInterval(interval)))
 
+            case .home(.delegate(.checkInRequested)):
+                return .send(.user(.checkIn))
+
+            case let .home(.delegate(.errorOccurred(error))):
+                // Create an error alert for home feature errors
+                state.errorAlert = AlertState {
+                    TextState("Error")
+                } actions: {
+                    ButtonState(role: .cancel) {
+                        TextState("Dismiss")
+                    }
+                } message: {
+                    TextState(error.localizedDescription)
+                }
+                return .none
+
             case .home:
                 return .none
 
@@ -499,6 +518,7 @@ struct AppFeature {
 
                         // Stream contacts data from Firebase
                         for await contacts in firebaseContactsClient.streamContacts(userId) {
+                            // Format the contacts with time strings before sending to the feature
                             await send(.contactsUpdated(contacts))
                         }
                     } catch {
@@ -510,9 +530,8 @@ struct AppFeature {
                 .cancellable(id: CancelID.contactsStream)
 
             case let .contactsUpdated(contacts):
-                // Update contacts in ContactsFeature
-                state.contacts.contacts = IdentifiedArray(uniqueElements: contacts)
-                return .none
+                // Update contacts in ContactsFeature by sending the action to the child feature
+                return .send(.contacts(.contactsUpdated(contacts)))
 
             case let .contactsStreamError(error):
                 // Create an error alert
@@ -528,7 +547,9 @@ struct AppFeature {
                 } message: {
                     TextState(error.localizedDescription)
                 }
-                return .none
+
+                // Forward the error to the contacts feature
+                return .send(.contacts(.contactsLoadFailed(error)))
 
             case .stopContactsStream:
                 return .cancel(id: CancelID.contactsStream)
@@ -644,6 +665,36 @@ struct AppFeature {
                     return .send(.startUserDataStream)
                 }
 
+            // MARK: - Ping Feature Delegate Actions
+
+            case let .ping(.delegate(.pingUpdated(id, hasOutgoingPing, outgoingPingTimestamp))):
+                // Update the contact in the contacts feature
+                return .send(.contacts(.updateContactPingStatus(id: id, hasOutgoingPing: hasOutgoingPing, outgoingPingTimestamp: outgoingPingTimestamp)))
+
+            case let .ping(.delegate(.pingResponseUpdated(id, hasIncomingPing, incomingPingTimestamp))):
+                // Update the contact in the contacts feature
+                return .send(.contacts(.updateContactPingResponseStatus(id: id, hasIncomingPing: hasIncomingPing, incomingPingTimestamp: incomingPingTimestamp)))
+
+            case .ping(.delegate(.allPingsResponseUpdated)):
+                // Update all contacts in the contacts feature
+                return .send(.contacts(.updateAllContactsResponseStatus))
+
+            case let .ping(.delegate(.pingOperationFailed(error))):
+                // Create an error alert
+                state.errorAlert = AlertState {
+                    TextState("Ping Operation Failed")
+                } actions: {
+                    ButtonState(role: .cancel) {
+                        TextState("Dismiss")
+                    }
+                    ButtonState(action: .retry) {
+                        TextState("Retry")
+                    }
+                } message: {
+                    TextState(error.localizedDescription)
+                }
+                return .none
+
             case .errorAlert:
                 return .none
             }
@@ -692,6 +743,10 @@ struct AppFeature {
 
         Scope(state: \.notification, action: \.notification) {
             NotificationFeature()
+        }
+
+        Scope(state: \.ping, action: \.ping) {
+            PingFeature()
         }
 
         Scope(state: \.onboarding, action: \.onboarding) {

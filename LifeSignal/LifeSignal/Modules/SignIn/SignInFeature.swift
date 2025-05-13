@@ -35,19 +35,7 @@ struct SignInFeature {
         var isLoading: Bool = false
 
         /// Error state
-        var error: Error?
-
-        /// Custom Equatable implementation to handle Error? property
-        static func == (lhs: State, rhs: State) -> Bool {
-            lhs.phoneNumber == rhs.phoneNumber &&
-            lhs.phoneRegion == rhs.phoneRegion &&
-            lhs.verificationCode == rhs.verificationCode &&
-            lhs.verificationID == rhs.verificationID &&
-            lhs.isCodeSent == rhs.isCodeSent &&
-            lhs.isLoading == rhs.isLoading &&
-            (lhs.error != nil) == (rhs.error != nil)
-            // Note: isAuthenticated is shared and doesn't need to be compared
-        }
+        var error: UserFacingError?
 
         /// Format the phone number for display
         func formattedPhoneNumber() -> String {
@@ -63,11 +51,13 @@ struct SignInFeature {
 
         /// Send verification code to the user's phone
         case sendVerificationCode
-        case sendVerificationCodeResponse(TaskResult<String>)
+        case sendVerificationCodeSucceeded(verificationID: String)
+        case sendVerificationCodeFailed(UserFacingError)
 
         /// Verify the code entered by the user
         case verifyCode
-        case verifyCodeResponse(TaskResult<Bool>)
+        case verifyCodeSucceeded
+        case verifyCodeFailed(UserFacingError)
 
         /// Clear any error state
         case clearError
@@ -98,30 +88,32 @@ struct SignInFeature {
             case .sendVerificationCode:
                 state.isLoading = true
                 return .run { [phoneNumber = state.phoneNumber, phoneRegion = state.phoneRegion, phoneFormatter, firebaseAuth] send in
-                    let result = await TaskResult {
+                    do {
                         let formattedPhoneNumber = phoneFormatter.formatPhoneNumber(phoneNumber, region: phoneRegion)
-                        return try await firebaseAuth.verifyPhoneNumber(formattedPhoneNumber)
+                        let verificationID = try await firebaseAuth.verifyPhoneNumber(formattedPhoneNumber)
+                        await send(.sendVerificationCodeSucceeded(verificationID: verificationID))
+                    } catch {
+                        let userFacingError = UserFacingError.from(error)
+                        await send(.sendVerificationCodeFailed(userFacingError))
                     }
-                    await send(.sendVerificationCodeResponse(result))
                 }
                 .cancellable(id: CancelID.signIn)
 
-            case let .sendVerificationCodeResponse(result):
+            case let .sendVerificationCodeSucceeded(verificationID):
                 state.isLoading = false
-                switch result {
-                case let .success(verificationID):
-                    state.verificationID = verificationID
-                    state.isCodeSent = true
-                    return .none
-                case let .failure(error):
-                    state.error = error
-                    return .none
-                }
+                state.verificationID = verificationID
+                state.isCodeSent = true
+                return .none
+
+            case let .sendVerificationCodeFailed(error):
+                state.isLoading = false
+                state.error = error
+                return .none
 
             case .verifyCode:
                 state.isLoading = true
                 return .run { [verificationID = state.verificationID, verificationCode = state.verificationCode] send in
-                    let result = await TaskResult {
+                    do {
                         // Create credential using the auth client
                         let credential = firebaseAuth.phoneAuthCredential(
                             verificationID: verificationID,
@@ -134,26 +126,27 @@ struct SignInFeature {
                         // After successful authentication, update the session
                         if let userId = authResult.user.uid {
                             // Create a new session using the session client
-                            _ = try await firebaseSessionClient.createSession(userId)
+                            try await firebaseSessionClient.createSession(userId)
                         }
 
-                        return true
+                        await send(.verifyCodeSucceeded)
+                    } catch {
+                        let userFacingError = UserFacingError.from(error)
+                        await send(.verifyCodeFailed(userFacingError))
                     }
-                    await send(.verifyCodeResponse(result))
                 }
                 .cancellable(id: CancelID.signIn)
 
-            case let .verifyCodeResponse(result):
+            case .verifyCodeSucceeded:
                 state.isLoading = false
-                switch result {
-                case .success:
-                    // Update the shared authentication state
-                    state.$isAuthenticated.withLock { $0 = true }
-                    return .send(.delegate(.signInSuccessful))
-                case let .failure(error):
-                    state.error = error
-                    return .none
-                }
+                // Update the shared authentication state
+                state.$isAuthenticated.withLock { $0 = true }
+                return .send(.delegate(.signInSuccessful))
+
+            case let .verifyCodeFailed(error):
+                state.isLoading = false
+                state.error = error
+                return .none
 
             case .clearError:
                 state.error = nil

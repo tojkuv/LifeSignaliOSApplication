@@ -1,7 +1,6 @@
 import SwiftUI
 import UIKit
 import ComposableArchitecture
-import LifeSignal
 
 /// A feature for QR code card display
 @Reducer

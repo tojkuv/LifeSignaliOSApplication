@@ -9,34 +9,54 @@ import OSLog
 @DependencyClient
 struct FirebaseTimestampManager: Sendable {
     /// Create a server timestamp field value
-    var serverTimestamp: @Sendable () -> FieldValue
+    var serverTimestamp: @Sendable () -> FieldValue = {
+        FieldValue.serverTimestamp()
+    }
 
     /// Create an increment field value
-    var increment: @Sendable (Int) -> FieldValue
+    var increment: @Sendable (Int) -> FieldValue = { value in
+        FieldValue.increment(Int64(value))
+    }
 
     /// Create an increment field value for double values
-    var incrementDouble: @Sendable (Double) -> FieldValue
+    var incrementDouble: @Sendable (Double) -> FieldValue = { value in
+        FieldValue.increment(value)
+    }
 
     /// Create an array union field value
-    var arrayUnion: @Sendable ([Any]) -> FieldValue
+    var arrayUnion: @Sendable ([Any]) -> FieldValue = { elements in
+        FieldValue.arrayUnion(elements)
+    }
 
     /// Create an array remove field value
-    var arrayRemove: @Sendable ([Any]) -> FieldValue
+    var arrayRemove: @Sendable ([Any]) -> FieldValue = { elements in
+        FieldValue.arrayRemove(elements)
+    }
 
     /// Create a delete field value
-    var deleteField: @Sendable () -> FieldValue
+    var deleteField: @Sendable () -> FieldValue = {
+        FieldValue.delete()
+    }
 
     /// Convert a Timestamp to a Date
-    var timestampToDate: @Sendable (Timestamp) -> Date
+    var timestampToDate: @Sendable (Timestamp) -> Date = { timestamp in
+        timestamp.dateValue()
+    }
 
     /// Convert a Date to a Timestamp
-    var dateToTimestamp: @Sendable (Date) -> Timestamp
+    var dateToTimestamp: @Sendable (Date) -> Timestamp = { date in
+        Timestamp(date: date)
+    }
 
     /// Get document data with server timestamp behavior
-    var getDocumentWithTimestampBehavior: @Sendable (DocumentReference, ServerTimestampBehavior) async throws -> DocumentSnapshot
+    var getDocumentWithTimestampBehavior: @Sendable (DocumentReference, ServerTimestampBehavior) async throws -> DocumentSnapshot = { _, _ in
+        throw FirebaseError.operationFailed
+    }
 
     /// Handle server timestamp in document data
-    var handleServerTimestamp: @Sendable ([String: Any], ServerTimestampBehavior) -> [String: Any]
+    var handleServerTimestamp: @Sendable ([String: Any], ServerTimestampBehavior) -> [String: Any] = { data, _ in
+        data
+    }
 }
 
 // MARK: - Live Implementation

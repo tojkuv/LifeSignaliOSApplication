@@ -42,7 +42,7 @@ struct RespondersView: View {
             if store.pendingPingsCount > 0 {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
-                        store.send(.contacts(.respondToAllPings))
+                        store.send(.ping(.respondToAllPings))
                     } label: {
                         Text("Respond to All")
                             .foregroundColor(.blue)

@@ -3,6 +3,7 @@ import ComposableArchitecture
 import SwiftUI
 import PhotosUI
 import Dependencies
+import DependenciesMacros
 import UIKit
 
 /// Shared QR code state between QRScannerFeature and AddContactFeature
@@ -177,9 +178,14 @@ struct QRScannerFeature {
 
             case .setupQRCodeHandler:
                 return .run { [qrCodeClient] send in
-                    qrCodeClient.setQRCodeScannedHandler { code in
-                        Task {
-                            await send(.handleScannedQRCode(code))
+                    // Use withEscapedDependencies to properly handle the callback
+                    withEscapedDependencies { dependencies in
+                        qrCodeClient.setQRCodeScannedHandler { code in
+                            Task {
+                                dependencies.yield {
+                                    await send(.handleScannedQRCode(code))
+                                }
+                            }
                         }
                     }
                 }
@@ -300,17 +306,21 @@ struct QRScannerFeature {
                 state.isProcessingQRCode = true
 
                 return .run { [qrCodeClient] send in
-                    if let image = await qrCodeClient.loadFullSizeImage(asset) {
-                        if let qrCode = qrCodeClient.scanQRCode(image) {
-                            // QR code found, handle it
-                            await send(.handleScannedQRCode(qrCode))
-                        } else {
-                            // No QR code found
-                            await send(.binding(.set(\.$showNoQRCodeAlert, true)))
-                            await send(.binding(.set(\.$isProcessingQRCode, false)))
+                    do {
+                        // Load the full-size image
+                        guard let image = await qrCodeClient.loadFullSizeImage(asset) else {
+                            throw UserFacingError.custom("Failed to load image")
                         }
-                    } else {
-                        // Failed to load image
+
+                        // Scan for QR code
+                        guard let qrCode = qrCodeClient.scanQRCode(image) else {
+                            throw UserFacingError.custom("No QR code found in image")
+                        }
+
+                        // QR code found, handle it
+                        await send(.handleScannedQRCode(qrCode))
+                    } catch {
+                        // Show alert for any errors
                         await send(.binding(.set(\.$showNoQRCodeAlert, true)))
                         await send(.binding(.set(\.$isProcessingQRCode, false)))
                     }

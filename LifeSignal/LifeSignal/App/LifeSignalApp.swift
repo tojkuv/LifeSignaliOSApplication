@@ -169,6 +169,7 @@ struct LifeSignalApp: App {
             // This is where you can override dependencies for testing or development
             $0.firebaseOfflineManager = .liveValue
             $0.firebaseTimestampManager = .liveValue
+            $0.firestoreStorage = .liveValue
         }
         #else
         let store = Store(initialState: AppFeature.State()) {
@@ -178,6 +179,7 @@ struct LifeSignalApp: App {
             // This is where you can set up production dependencies
             $0.firebaseOfflineManager = .liveValue
             $0.firebaseTimestampManager = .liveValue
+            $0.firestoreStorage = .liveValue
         }
         #endif
 

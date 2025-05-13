@@ -9,16 +9,16 @@ import OSLog
 @DependencyClient
 struct FirebaseMessagingClient: Sendable {
     /// Set up the messaging delegate
-    var setDelegate: @Sendable () -> Void
+    var setDelegate: @Sendable () -> Void = { }
 
     /// Get the current FCM token
-    var getFCMToken: @Sendable () -> String?
+    var getFCMToken: @Sendable () -> String? = { nil }
 
     /// Register for token updates
-    var registerForTokenUpdates: @Sendable (@Sendable @escaping (String) -> Void) -> Void
+    var registerForTokenUpdates: @Sendable (@Sendable @escaping (String) -> Void) -> Void = { _ in }
 
     /// Unregister from token updates
-    var unregisterFromTokenUpdates: @Sendable () -> Void
+    var unregisterFromTokenUpdates: @Sendable () -> Void = { }
 }
 
 // MARK: - Live Implementation
