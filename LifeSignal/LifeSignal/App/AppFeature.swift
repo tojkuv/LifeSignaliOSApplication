@@ -12,6 +12,8 @@ struct AppFeature {
     /// Cancellation IDs for long-running effects
     enum CancelID: Hashable, Sendable {
         case appLifecycle
+        case userDataStream
+        case contactsStream
     }
 
     /// The state of the app feature
@@ -120,6 +122,18 @@ struct AppFeature {
         /// Check onboarding state
         case checkOnboardingState
         case checkOnboardingStateResponse(Bool)
+
+        /// User data stream actions
+        case startUserDataStream
+        case userDataUpdated(UserData)
+        case userDataError(UserFacingError)
+        case stopUserDataStream
+
+        /// Contacts stream actions
+        case startContactsStream
+        case contactsUpdated([ContactData])
+        case contactsStreamError(UserFacingError)
+        case stopContactsStream
     }
 
     /// Dependencies
@@ -127,6 +141,8 @@ struct AppFeature {
     @Dependency(\.firebaseApp) var firebaseApp
     @Dependency(\.firebaseNotification) var firebaseNotification
     @Dependency(\.firebaseSessionClient) var firebaseSessionClient
+    @Dependency(\.firebaseUserClient) var firebaseUserClient
+    @Dependency(\.firebaseContactsClient) var firebaseContactsClient
 
     /// The body of the reducer
     var body: some ReducerOf<Self> {
@@ -145,7 +161,7 @@ struct AppFeature {
             case let .appStateChanged(oldState, newState):
                 if newState == .active && oldState != .active && state.isAuthenticated {
                     return .merge(
-                        .send(.user(.loadUserData)),
+                        .send(.startUserDataStream),
                         .send(.contacts(.loadContacts))
                     )
                 }
@@ -168,14 +184,14 @@ struct AppFeature {
 
                 if !wasAuthenticated && isAuthenticated {
                     return .merge(
-                        .send(.user(.startUserDataStream)),
-                        .send(.contacts(.startContactsStream)),
+                        .send(.startUserDataStream),
+                        .send(.startContactsStream),
                         .send(.checkOnboardingState)
                     )
                 } else if wasAuthenticated && !isAuthenticated {
                     return .merge(
-                        .send(.user(.stopUserDataStream)),
-                        .send(.contacts(.stopContactsStream))
+                        .send(.stopUserDataStream),
+                        .send(.stopContactsStream)
                     )
                 }
 
@@ -197,6 +213,136 @@ struct AppFeature {
                 return .none
 
             // MARK: - Child Feature Actions
+
+            // MARK: - User Feature Error Handling
+
+            case let .user(.delegate(.userDataLoadFailed(error))):
+                // Create an error alert for user data loading failure
+                state.errorAlert = AlertState {
+                    TextState("Error Loading User Data")
+                } actions: {
+                    ButtonState(role: .cancel) {
+                        TextState("Dismiss")
+                    }
+                    ButtonState(action: .retry) {
+                        TextState("Retry")
+                    }
+                } message: {
+                    TextState(error.localizedDescription)
+                }
+                return .none
+
+            case let .user(.delegate(.profileUpdateFailed(error))):
+                // Create an error alert for profile update failure
+                state.errorAlert = AlertState {
+                    TextState("Profile Update Failed")
+                } actions: {
+                    ButtonState(role: .cancel) {
+                        TextState("Dismiss")
+                    }
+                    ButtonState(action: .retry) {
+                        TextState("Retry")
+                    }
+                } message: {
+                    TextState(error.localizedDescription)
+                }
+                return .none
+
+            case let .user(.delegate(.notificationPreferencesUpdateFailed(error))):
+                // Create an error alert for notification preferences update failure
+                state.errorAlert = AlertState {
+                    TextState("Notification Preferences Update Failed")
+                } actions: {
+                    ButtonState(role: .cancel) {
+                        TextState("Dismiss")
+                    }
+                    ButtonState(action: .retry) {
+                        TextState("Retry")
+                    }
+                } message: {
+                    TextState(error.localizedDescription)
+                }
+                return .none
+
+            case let .user(.delegate(.checkInFailed(error))):
+                // Create an error alert for check-in failure
+                state.errorAlert = AlertState {
+                    TextState("Check-in Failed")
+                } actions: {
+                    ButtonState(role: .cancel) {
+                        TextState("Dismiss")
+                    }
+                    ButtonState(action: .retry) {
+                        TextState("Retry")
+                    }
+                } message: {
+                    TextState(error.localizedDescription)
+                }
+                return .none
+
+            case let .user(.delegate(.checkInIntervalUpdateFailed(error))):
+                // Create an error alert for check-in interval update failure
+                state.errorAlert = AlertState {
+                    TextState("Failed to Update Check-in Interval")
+                } actions: {
+                    ButtonState(role: .cancel) {
+                        TextState("Dismiss")
+                    }
+                    ButtonState(action: .retry) {
+                        TextState("Retry")
+                    }
+                } message: {
+                    TextState(error.localizedDescription)
+                }
+                return .none
+
+            case let .user(.delegate(.manualAlertTriggerFailed(error))):
+                // Create an error alert for manual alert trigger failure
+                state.errorAlert = AlertState {
+                    TextState("Failed to Trigger Alert")
+                } actions: {
+                    ButtonState(role: .cancel) {
+                        TextState("Dismiss")
+                    }
+                    ButtonState(action: .retry) {
+                        TextState("Retry")
+                    }
+                } message: {
+                    TextState(error.localizedDescription)
+                }
+                return .none
+
+            case let .user(.delegate(.manualAlertClearFailed(error))):
+                // Create an error alert for manual alert clear failure
+                state.errorAlert = AlertState {
+                    TextState("Failed to Clear Alert")
+                } actions: {
+                    ButtonState(role: .cancel) {
+                        TextState("Dismiss")
+                    }
+                    ButtonState(action: .retry) {
+                        TextState("Retry")
+                    }
+                } message: {
+                    TextState(error.localizedDescription)
+                }
+                return .none
+
+            case let .user(.delegate(.phoneNumberUpdateFailed(error))):
+                // Create an error alert for phone number update failure
+                state.errorAlert = AlertState {
+                    TextState("Error Updating Phone Number")
+                } actions: {
+                    ButtonState(role: .cancel) {
+                        TextState("Dismiss")
+                    }
+                    ButtonState(action: .retry) {
+                        TextState("Retry")
+                    }
+                } message: {
+                    TextState(error.localizedDescription)
+                }
+                return .none
 
             case .user, .signIn, .contacts:
                 return .none
@@ -278,7 +424,40 @@ struct AppFeature {
             case .responders:
                 return .none
 
-            case let .user(.userDataStreamResponse(userData)):
+            // MARK: - User Data Stream
+
+            case .startUserDataStream:
+                return .run { [firebaseUserClient, firebaseAuth] send in
+                    do {
+                        // Get the authenticated user ID
+                        let userId = try await firebaseAuth.currentUserId()
+
+                        // Stream user data from Firebase
+                        for await userData in firebaseUserClient.streamUserDocument(userId) {
+                            await send(.userDataUpdated(userData))
+                        }
+                    } catch {
+                        // Map any errors to UserFacingError
+                        let userFacingError = UserFacingError.from(error)
+                        await send(.userDataError(userFacingError))
+                    }
+                }
+                .cancellable(id: CancelID.userDataStream)
+
+            case let .userDataUpdated(userData):
+                // Update user data in UserFeature
+                state.user.userData = userData
+
+                // Update child features in UserFeature
+                if state.user.checkIn != nil {
+                    state.user.checkIn?.lastCheckedIn = userData.lastCheckedIn
+                    state.user.checkIn?.checkInInterval = userData.checkInInterval
+                }
+
+                if state.user.profile != nil {
+                    state.user.profile?.userData = userData
+                }
+
                 // Sync user data to other features
                 return .merge(
                     .send(.notification(.updateNotificationState(
@@ -291,6 +470,68 @@ struct AppFeature {
                         timestamp: userData.manualAlertTimestamp
                     )))
                 )
+
+            case let .userDataError(error):
+                // Create an error alert
+                state.errorAlert = AlertState {
+                    TextState("Error Loading User Data")
+                } actions: {
+                    ButtonState(role: .cancel) {
+                        TextState("Dismiss")
+                    }
+                    ButtonState(action: .retry) {
+                        TextState("Retry")
+                    }
+                } message: {
+                    TextState(error.localizedDescription)
+                }
+                return .none
+
+            case .stopUserDataStream:
+                return .cancel(id: CancelID.userDataStream)
+
+            // MARK: - Contacts Stream
+
+            case .startContactsStream:
+                return .run { [firebaseContactsClient, firebaseAuth] send in
+                    do {
+                        let userId = try await firebaseAuth.currentUserId()
+
+                        // Stream contacts data from Firebase
+                        for await contacts in firebaseContactsClient.streamContacts(userId) {
+                            await send(.contactsUpdated(contacts))
+                        }
+                    } catch {
+                        // Map any errors to UserFacingError
+                        let userFacingError = UserFacingError.from(error)
+                        await send(.contactsStreamError(userFacingError))
+                    }
+                }
+                .cancellable(id: CancelID.contactsStream)
+
+            case let .contactsUpdated(contacts):
+                // Update contacts in ContactsFeature
+                state.contacts.contacts = IdentifiedArray(uniqueElements: contacts)
+                return .none
+
+            case let .contactsStreamError(error):
+                // Create an error alert
+                state.errorAlert = AlertState {
+                    TextState("Error Loading Contacts")
+                } actions: {
+                    ButtonState(role: .cancel) {
+                        TextState("Dismiss")
+                    }
+                    ButtonState(action: .retry) {
+                        TextState("Retry")
+                    }
+                } message: {
+                    TextState(error.localizedDescription)
+                }
+                return .none
+
+            case .stopContactsStream:
+                return .cancel(id: CancelID.contactsStream)
 
             case let .qrScanner(.setShowScanner(show)):
                 state.qrScanner.showScanner = show
@@ -353,8 +594,55 @@ struct AppFeature {
 
             case .errorAlert(.presented(.retry)):
                 state.errorAlert = nil
-                // Add retry logic if needed
-                return .none
+
+                // Determine which operation to retry based on the alert title
+                if let title = state.errorAlert?.title {
+                    let titleText = title.rawValue
+
+                    switch titleText {
+                    case "Error Loading User Data":
+                        return .send(.user(.loadUserData))
+
+                    case "Profile Update Failed":
+                        // For profile updates, we need to reload the user data
+                        return .send(.user(.loadUserData))
+
+                    case "Notification Preferences Update Failed":
+                        // For notification preferences updates, we need to reload the user data
+                        return .send(.user(.loadUserData))
+
+                    case "Check-in Failed":
+                        // For check-in failures, we need to retry the check-in
+                        return .send(.user(.checkIn))
+
+                    case "Failed to Update Check-in Interval":
+                        // For check-in interval update failures, we need to reload the user data
+                        return .send(.user(.loadUserData))
+
+                    case "Failed to Trigger Alert":
+                        // For manual alert trigger failures, we need to retry the trigger
+                        return .send(.user(.triggerManualAlert))
+
+                    case "Failed to Clear Alert":
+                        // For manual alert clear failures, we need to retry the clear
+                        return .send(.user(.clearManualAlert))
+
+                    case "Error Updating Phone Number":
+                        // For phone number update failures, we need to reload the user data
+                        return .send(.user(.loadUserData))
+
+                    case "Error Loading Contacts":
+                        // For contacts loading failures, we need to restart the contacts stream
+                        return .send(.startContactsStream)
+
+                    default:
+                        // Default fallback is to restart the user data stream
+                        return .send(.startUserDataStream)
+                    }
+                } else {
+                    // If no title is available, restart the user data stream
+                    return .send(.startUserDataStream)
+                }
 
             case .errorAlert:
                 return .none

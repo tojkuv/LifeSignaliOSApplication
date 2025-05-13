@@ -46,7 +46,7 @@ struct UserData: Equatable, Sendable {
         userData.name = data[FirestoreConstants.UserFields.name] as? String ?? ""
         userData.phoneNumber = data[FirestoreConstants.UserFields.phoneNumber] as? String ?? ""
         userData.phoneRegion = data[FirestoreConstants.UserFields.phoneRegion] as? String ?? "US"
-        userData.emergencyNote = data[FirestoreConstants.UserFields.emergencyNote] as? String ?? ""
+        userData.emergencyNote = data[FirestoreConstants.UserFields.emergencyNote] as? String ?? ""uatable? : 
         userData.qrCodeId = data[FirestoreConstants.UserFields.qrCodeId] as? String ?? ""
         userData.notificationEnabled = data[FirestoreConstants.UserFields.notificationEnabled] as? Bool ?? true
         userData.profileComplete = data[FirestoreConstants.UserFields.profileComplete] as? Bool ?? false

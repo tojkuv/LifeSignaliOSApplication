@@ -28,7 +28,7 @@ struct FirebaseOfflineManager: Sendable {
     var clearPersistence: @Sendable () async throws -> Void
 
     /// Set cache size
-    var setCacheSize: @Sendable (_ sizeInBytes: Int64) async -> Void
+    var setCacheSize: @Sendable (Int64) async -> Void
 }
 
 // MARK: - Live Implementation
@@ -38,14 +38,10 @@ extension FirebaseOfflineManager: DependencyKey {
         enableOfflinePersistence: {
             FirebaseLogger.app.debug("Enabling offline persistence")
             let settings = Firestore.firestore().settings
-            settings.isPersistenceEnabled = true
 
-            // Use a reasonable cache size instead of unlimited to prevent excessive storage usage
-            // 100MB is a good default for most applications
-            settings.cacheSizeBytes = 100 * 1024 * 1024
-
-            // Enable offline transaction persistence
-            settings.persistenceEnabled = true
+            // Use cacheSettings instead of deprecated properties
+            // Set cache size to 100MB (a reasonable default)
+            settings.cacheSettings = PersistentCacheSettings(sizeBytes: NSNumber(value: 100 * 1024 * 1024))
 
             // Set the settings on the Firestore instance
             Firestore.firestore().settings = settings
@@ -112,7 +108,7 @@ extension FirebaseOfflineManager: DependencyKey {
         setCacheSize: { sizeInBytes in
             FirebaseLogger.app.debug("Setting cache size to \(sizeInBytes) bytes")
             let settings = Firestore.firestore().settings
-            settings.cacheSizeBytes = sizeInBytes
+            settings.cacheSettings = PersistentCacheSettings(sizeBytes: NSNumber(value: sizeInBytes))
             Firestore.firestore().settings = settings
             FirebaseLogger.app.info("Cache size set to \(sizeInBytes) bytes")
         }
@@ -124,13 +120,13 @@ extension FirebaseOfflineManager: DependencyKey {
 extension FirebaseOfflineManager {
     /// A mock implementation that returns predefined values for testing
     static func mock(
-        enableOfflinePersistence: @escaping () async -> Void = { },
-        disableNetwork: @escaping () async throws -> Void = { },
-        enableNetwork: @escaping () async throws -> Void = { },
-        isNetworkEnabled: @escaping () async -> Bool = { true },
-        waitForPendingWrites: @escaping () async throws -> Void = { },
-        clearPersistence: @escaping () async throws -> Void = { },
-        setCacheSize: @escaping (_ sizeInBytes: Int64) async -> Void = { _ in }
+        enableOfflinePersistence: @Sendable @escaping () async -> Void = { },
+        disableNetwork: @Sendable @escaping () async throws -> Void = { },
+        enableNetwork: @Sendable @escaping () async throws -> Void = { },
+        isNetworkEnabled: @Sendable @escaping () async -> Bool = { true },
+        waitForPendingWrites: @Sendable @escaping () async throws -> Void = { },
+        clearPersistence: @Sendable @escaping () async throws -> Void = { },
+        setCacheSize: @Sendable @escaping (Int64) async -> Void = { _ in }
     ) -> Self {
         Self(
             enableOfflinePersistence: enableOfflinePersistence,
@@ -142,16 +138,18 @@ extension FirebaseOfflineManager {
             setCacheSize: setCacheSize
         )
     }
+}
 
+extension FirebaseOfflineManager: TestDependencyKey {
     /// A test implementation that fails with an unimplemented error
     static let testValue = Self(
-        enableOfflinePersistence: XCTUnimplemented("\(Self.self).enableOfflinePersistence"),
-        disableNetwork: XCTUnimplemented("\(Self.self).disableNetwork"),
-        enableNetwork: XCTUnimplemented("\(Self.self).enableNetwork"),
-        isNetworkEnabled: XCTUnimplemented("\(Self.self).isNetworkEnabled", placeholder: true),
-        waitForPendingWrites: XCTUnimplemented("\(Self.self).waitForPendingWrites"),
-        clearPersistence: XCTUnimplemented("\(Self.self).clearPersistence"),
-        setCacheSize: XCTUnimplemented("\(Self.self).setCacheSize")
+        enableOfflinePersistence: unimplemented("\(Self.self).enableOfflinePersistence"),
+        disableNetwork: unimplemented("\(Self.self).disableNetwork"),
+        enableNetwork: unimplemented("\(Self.self).enableNetwork"),
+        isNetworkEnabled: unimplemented("\(Self.self).isNetworkEnabled", placeholder: true),
+        waitForPendingWrites: unimplemented("\(Self.self).waitForPendingWrites"),
+        clearPersistence: unimplemented("\(Self.self).clearPersistence"),
+        setCacheSize: unimplemented("\(Self.self).setCacheSize")
     )
 }
 

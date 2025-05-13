@@ -12,48 +12,48 @@ struct FirebaseTimestampManager: Sendable {
     var serverTimestamp: @Sendable () -> FieldValue
 
     /// Create an increment field value
-    var increment: @Sendable (_ value: Int) -> FieldValue
+    var increment: @Sendable (Int) -> FieldValue
 
     /// Create an increment field value for double values
-    var incrementDouble: @Sendable (_ value: Double) -> FieldValue
+    var incrementDouble: @Sendable (Double) -> FieldValue
 
     /// Create an array union field value
-    var arrayUnion: @Sendable (_ elements: [Any]) -> FieldValue
+    var arrayUnion: @Sendable ([Any]) -> FieldValue
 
     /// Create an array remove field value
-    var arrayRemove: @Sendable (_ elements: [Any]) -> FieldValue
+    var arrayRemove: @Sendable ([Any]) -> FieldValue
 
     /// Create a delete field value
     var deleteField: @Sendable () -> FieldValue
 
     /// Convert a Timestamp to a Date
-    var timestampToDate: @Sendable (_ timestamp: Timestamp) -> Date
+    var timestampToDate: @Sendable (Timestamp) -> Date
 
     /// Convert a Date to a Timestamp
-    var dateToTimestamp: @Sendable (_ date: Date) -> Timestamp
+    var dateToTimestamp: @Sendable (Date) -> Timestamp
 
     /// Get document data with server timestamp behavior
-    var getDocumentWithTimestampBehavior: @Sendable (_ docRef: DocumentReference, _ behavior: ServerTimestampBehavior) async throws -> DocumentSnapshot
+    var getDocumentWithTimestampBehavior: @Sendable (DocumentReference, ServerTimestampBehavior) async throws -> DocumentSnapshot
 
     /// Handle server timestamp in document data
-    var handleServerTimestamp: @Sendable (_ data: [String: Any], _ behavior: ServerTimestampBehavior) -> [String: Any]
+    var handleServerTimestamp: @Sendable ([String: Any], ServerTimestampBehavior) -> [String: Any]
 }
 
 // MARK: - Live Implementation
 
 extension FirebaseTimestampManager: DependencyKey {
-    static let liveValue = Self(
+    static let liveValue: Self = Self(
         serverTimestamp: {
             FirebaseLogger.app.debug("Creating server timestamp field value")
             return FieldValue.serverTimestamp()
         },
 
-        increment: { value in
+        increment: { (value: Int) -> FieldValue in
             FirebaseLogger.app.debug("Creating increment field value: \(value)")
             return FieldValue.increment(Int64(value))
         },
 
-        incrementDouble: { value in
+        incrementDouble: { (value: Double) -> FieldValue in
             FirebaseLogger.app.debug("Creating increment field value: \(value)")
             return FieldValue.increment(value)
         },
@@ -135,18 +135,18 @@ extension FirebaseTimestampManager: DependencyKey {
 extension FirebaseTimestampManager {
     /// A mock implementation that returns predefined values for testing
     static func mock(
-        serverTimestamp: @escaping () -> FieldValue = { FieldValue.serverTimestamp() },
-        increment: @escaping (_ value: Int) -> FieldValue = { _ in FieldValue.increment(1) },
-        incrementDouble: @escaping (_ value: Double) -> FieldValue = { _ in FieldValue.increment(1.0) },
-        arrayUnion: @escaping (_ elements: [Any]) -> FieldValue = { _ in FieldValue.arrayUnion([]) },
-        arrayRemove: @escaping (_ elements: [Any]) -> FieldValue = { _ in FieldValue.arrayRemove([]) },
-        deleteField: @escaping () -> FieldValue = { FieldValue.delete() },
-        timestampToDate: @escaping (_ timestamp: Timestamp) -> Date = { timestamp in timestamp.dateValue() },
-        dateToTimestamp: @escaping (_ date: Date) -> Timestamp = { date in Timestamp(date: date) },
-        getDocumentWithTimestampBehavior: @escaping (_ docRef: DocumentReference, _ behavior: ServerTimestampBehavior) async throws -> DocumentSnapshot = { _, _ in
-            throw NSError(domain: "MockError", code: 0, userInfo: [NSLocalizedDescriptionKey: "Mock not implemented"])
+        serverTimestamp: @Sendable @escaping () -> FieldValue = { FieldValue.serverTimestamp() },
+        increment: @Sendable @escaping (Int) -> FieldValue = { value in FieldValue.increment(Int64(value)) },
+        incrementDouble: @Sendable @escaping (Double) -> FieldValue = { value in FieldValue.increment(value) },
+        arrayUnion: @Sendable @escaping ([Any]) -> FieldValue = { elements in FieldValue.arrayUnion(elements) },
+        arrayRemove: @Sendable @escaping ([Any]) -> FieldValue = { elements in FieldValue.arrayRemove(elements) },
+        deleteField: @Sendable @escaping () -> FieldValue = { FieldValue.delete() },
+        timestampToDate: @Sendable @escaping (Timestamp) -> Date = { timestamp in timestamp.dateValue() },
+        dateToTimestamp: @Sendable @escaping (Date) -> Timestamp = { date in Timestamp(date: date) },
+        getDocumentWithTimestampBehavior: @Sendable @escaping (DocumentReference, ServerTimestampBehavior) async throws -> DocumentSnapshot = { _, _ in
+            throw FirebaseError.operationFailed
         },
-        handleServerTimestamp: @escaping (_ data: [String: Any], _ behavior: ServerTimestampBehavior) -> [String: Any] = { data, _ in data }
+        handleServerTimestamp: @Sendable @escaping ([String: Any], ServerTimestampBehavior) -> [String: Any] = { data, _ in data }
     ) -> Self {
         Self(
             serverTimestamp: serverTimestamp,
@@ -161,19 +161,21 @@ extension FirebaseTimestampManager {
             handleServerTimestamp: handleServerTimestamp
         )
     }
+}
 
+extension FirebaseTimestampManager: TestDependencyKey {
     /// A test implementation that fails with an unimplemented error
     static let testValue = Self(
-        serverTimestamp: XCTUnimplemented("\(Self.self).serverTimestamp", placeholder: FieldValue.serverTimestamp()),
-        increment: XCTUnimplemented("\(Self.self).increment", placeholder: { _ in FieldValue.increment(1) }),
-        incrementDouble: XCTUnimplemented("\(Self.self).incrementDouble", placeholder: { _ in FieldValue.increment(1.0) }),
-        arrayUnion: XCTUnimplemented("\(Self.self).arrayUnion", placeholder: { _ in FieldValue.arrayUnion([]) }),
-        arrayRemove: XCTUnimplemented("\(Self.self).arrayRemove", placeholder: { _ in FieldValue.arrayRemove([]) }),
-        deleteField: XCTUnimplemented("\(Self.self).deleteField", placeholder: FieldValue.delete()),
-        timestampToDate: XCTUnimplemented("\(Self.self).timestampToDate", placeholder: { timestamp in timestamp.dateValue() }),
-        dateToTimestamp: XCTUnimplemented("\(Self.self).dateToTimestamp", placeholder: { date in Timestamp(date: date) }),
-        getDocumentWithTimestampBehavior: XCTUnimplemented("\(Self.self).getDocumentWithTimestampBehavior"),
-        handleServerTimestamp: XCTUnimplemented("\(Self.self).handleServerTimestamp", placeholder: { data, _ in data })
+        serverTimestamp: unimplemented("\(Self.self).serverTimestamp", placeholder: FieldValue.serverTimestamp()),
+        increment: unimplemented("\(Self.self).increment", placeholder: { value in FieldValue.increment(Int64(value)) }),
+        incrementDouble: unimplemented("\(Self.self).incrementDouble", placeholder: { value in FieldValue.increment(value) }),
+        arrayUnion: unimplemented("\(Self.self).arrayUnion", placeholder: { elements in FieldValue.arrayUnion(elements) }),
+        arrayRemove: unimplemented("\(Self.self).arrayRemove", placeholder: { elements in FieldValue.arrayRemove(elements) }),
+        deleteField: unimplemented("\(Self.self).deleteField", placeholder: FieldValue.delete()),
+        timestampToDate: unimplemented("\(Self.self).timestampToDate", placeholder: { timestamp in timestamp.dateValue() }),
+        dateToTimestamp: unimplemented("\(Self.self).dateToTimestamp", placeholder: { date in Timestamp(date: date) }),
+        getDocumentWithTimestampBehavior: unimplemented("\(Self.self).getDocumentWithTimestampBehavior"),
+        handleServerTimestamp: unimplemented("\(Self.self).handleServerTimestamp", placeholder: { data, _ in data })
     )
 }
 

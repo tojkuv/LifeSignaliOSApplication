@@ -15,23 +15,27 @@ struct FirebaseAuthClient: Sendable {
     var signOut: @Sendable () async throws -> Void = { }
 
     /// Sign in with a credential
-    var signIn: @Sendable (_ credential: AuthCredential) async throws -> AuthDataResult = { _ in
-        fatalError("Default implementation not provided")
+    var signIn: @Sendable (AuthCredential) async throws -> AuthDataResult = { _ in
+        throw FirebaseError.notAuthenticated
     }
 
     /// Create a phone auth credential
-    var phoneAuthCredential: @Sendable (_ verificationID: String, _ verificationCode: String) -> AuthCredential = { _, _ in
-        fatalError("Default implementation not provided")
+    var phoneAuthCredential: @Sendable (String, String) -> PhoneAuthCredential = { verificationID, verificationCode in
+        PhoneAuthProvider.provider().credential(withVerificationID: verificationID, verificationCode: verificationCode)
     }
 
-    /// Get the current user's ID
-    var currentUserId: @Sendable () async -> String? = { nil }
+    /// Get the current user's ID or throw an authentication error if not available
+    var currentUserId: @Sendable () async throws -> String = {
+        throw FirebaseError.notAuthenticated
+    }
 
     /// Send verification code to phone number
-    var verifyPhoneNumber: @Sendable (_ phoneNumber: String) async throws -> String = { _ in "" }
+    var verifyPhoneNumber: @Sendable (String) async throws -> String = { _ in
+        throw FirebaseError.notAuthenticated
+    }
 
     /// Update the phone number of the current user
-    var updatePhoneNumber: @Sendable (_ credential: AuthCredential) async throws -> Void = { _ in }
+    var updatePhoneNumber: @Sendable (PhoneAuthCredential) async throws -> Void = { _ in }
 
     /// Check if user is authenticated
     var isAuthenticated: @Sendable () async -> Bool = { false }
@@ -40,7 +44,7 @@ struct FirebaseAuthClient: Sendable {
 // MARK: - Live Implementation
 
 extension FirebaseAuthClient: DependencyKey {
-    static let liveValue = Self(
+    static let liveValue: FirebaseAuthClient = FirebaseAuthClient(
         currentUser: {
             FirebaseLogger.auth.debug("Getting current user")
             return Auth.auth().currentUser
@@ -74,13 +78,13 @@ extension FirebaseAuthClient: DependencyKey {
             )
         },
         currentUserId: {
-            if let uid = Auth.auth().currentUser?.uid {
-                FirebaseLogger.auth.debug("Current user ID: \(uid)")
-                return uid
-            } else {
-                FirebaseLogger.auth.debug("No current user ID")
-                return nil
+            FirebaseLogger.auth.debug("Requiring authenticated user ID")
+            guard let uid = Auth.auth().currentUser?.uid else {
+                FirebaseLogger.auth.error("Authentication required but no user is signed in")
+                throw FirebaseError.notAuthenticated
             }
+            FirebaseLogger.auth.debug("Authenticated user ID: \(uid)")
+            return uid
         },
         verifyPhoneNumber: { phoneNumber in
             FirebaseLogger.auth.debug("Verifying phone number")
@@ -121,24 +125,29 @@ extension FirebaseAuthClient: DependencyKey {
 extension FirebaseAuthClient {
     /// A mock implementation that returns predefined values for testing
     static func mock(
-        currentUser: @escaping () async -> User? = { nil },
-        signOut: @escaping () async throws -> Void = { },
-        signIn: @escaping (_ credential: AuthCredential) async throws -> AuthDataResult = { _ in
-            fatalError("Mock not implemented")
+        currentUser: @Sendable @escaping () async -> User? = { nil },
+        signOut: @Sendable @escaping () async throws -> Void = { },
+        signIn: @Sendable @escaping (AuthCredential) async throws -> AuthDataResult = { _ in
+            throw FirebaseError.notAuthenticated
         },
-        phoneAuthCredential: @escaping (_ verificationID: String, _ verificationCode: String) -> AuthCredential = { _, _ in
-            fatalError("Mock not implemented")
+        phoneAuthCredential: @Sendable @escaping (String, String) -> PhoneAuthCredential = { verificationID, verificationCode in
+            PhoneAuthProvider.provider().credential(withVerificationID: verificationID, verificationCode: verificationCode)
         },
-        currentUserId: @escaping () async -> String? = { nil },
-        verifyPhoneNumber: @escaping (_ phoneNumber: String) async throws -> String = { _ in "" },
-        updatePhoneNumber: @escaping (_ credential: AuthCredential) async throws -> Void = { _ in },
-        isAuthenticated: @escaping () async -> Bool = { false }
+        currentUserId: @Sendable @escaping () async throws -> String = {
+            throw FirebaseError.notAuthenticated
+        },
+        verifyPhoneNumber: @Sendable @escaping (String) async throws -> String = { _ in
+            throw FirebaseError.notAuthenticated
+        },
+        updatePhoneNumber: @Sendable @escaping (PhoneAuthCredential) async throws -> Void = { _ in },
+        isAuthenticated: @Sendable @escaping () async -> Bool = { false }
     ) -> Self {
         Self(
             currentUser: currentUser,
             signOut: signOut,
             signIn: signIn,
             phoneAuthCredential: phoneAuthCredential,
+            currentUserIdOptional: currentUserIdOptional,
             currentUserId: currentUserId,
             verifyPhoneNumber: verifyPhoneNumber,
             updatePhoneNumber: updatePhoneNumber,
@@ -149,20 +158,33 @@ extension FirebaseAuthClient {
 
 extension FirebaseAuthClient: TestDependencyKey {
     /// A test implementation that fails with an unimplemented error
-    static let testValue = Self(
-        currentUser: unimplemented("\(Self.self).currentUser", placeholder: nil),
-        signOut: unimplemented("\(Self.self).signOut"),
-        signIn: unimplemented("\(Self.self).signIn", placeholder: { _ in
-            fatalError("Unimplemented: \(Self.self).signIn")
-        }),
-        phoneAuthCredential: unimplemented("\(Self.self).phoneAuthCredential", placeholder: { _, _ in
-            fatalError("Unimplemented: \(Self.self).phoneAuthCredential")
-        }),
-        currentUserId: unimplemented("\(Self.self).currentUserId", placeholder: nil),
-        verifyPhoneNumber: unimplemented("\(Self.self).verifyPhoneNumber", placeholder: { _ in "" }),
-        updatePhoneNumber: unimplemented("\(Self.self).updatePhoneNumber"),
-        isAuthenticated: unimplemented("\(Self.self).isAuthenticated", placeholder: false)
-    )
+    static var testValue: FirebaseAuthClient {
+        let currentUserPlaceholder: @Sendable () async -> User? = { nil }
+        let signOutPlaceholder: @Sendable () async throws -> Void = { }
+        let signInPlaceholder: @Sendable (AuthCredential) async throws -> AuthDataResult = { _ in
+            throw FirebaseError.notAuthenticated
+        }
+        let phoneAuthCredentialPlaceholder: @Sendable (String, String) -> PhoneAuthCredential = { verificationID, verificationCode in
+            PhoneAuthProvider.provider().credential(withVerificationID: verificationID, verificationCode: verificationCode)
+        }
+        let currentUserIdPlaceholder: @Sendable () async throws -> String = { throw FirebaseError.notAuthenticated }
+        let verifyPhoneNumberPlaceholder: @Sendable (String) async throws -> String = { _ in
+            throw FirebaseError.notAuthenticated
+        }
+        let updatePhoneNumberPlaceholder: @Sendable (PhoneAuthCredential) async throws -> Void = { _ in }
+        let isAuthenticatedPlaceholder: @Sendable () async -> Bool = { false }
+
+        return FirebaseAuthClient(
+            currentUser: unimplemented("\(Self.self).currentUser", placeholder: currentUserPlaceholder),
+            signOut: unimplemented("\(Self.self).signOut", placeholder: signOutPlaceholder),
+            signIn: unimplemented("\(Self.self).signIn", placeholder: signInPlaceholder),
+            phoneAuthCredential: unimplemented("\(Self.self).phoneAuthCredential", placeholder: phoneAuthCredentialPlaceholder),
+            currentUserId: unimplemented("\(Self.self).currentUserId", placeholder: currentUserIdPlaceholder),
+            verifyPhoneNumber: unimplemented("\(Self.self).verifyPhoneNumber", placeholder: verifyPhoneNumberPlaceholder),
+            updatePhoneNumber: unimplemented("\(Self.self).updatePhoneNumber", placeholder: updatePhoneNumberPlaceholder),
+            isAuthenticated: unimplemented("\(Self.self).isAuthenticated", placeholder: isAuthenticatedPlaceholder)
+        )
+    }
 }
 
 extension DependencyValues {

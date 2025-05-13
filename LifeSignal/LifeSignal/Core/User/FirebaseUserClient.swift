@@ -10,45 +10,37 @@ import OSLog
 @DependencyClient
 struct FirebaseUserClient: Sendable {
     /// Get user data once
-    var getUserData: @Sendable (String) async throws -> UserData = { _ in .empty }
+    var getUserData: @Sendable (String) async throws -> UserData
 
     /// Get user document once
-    var getUserDocument: @Sendable (String) async throws -> UserData = { _ in .empty }
+    var getUserDocument: @Sendable (String) async throws -> UserData
 
     /// Stream user data updates
-    var streamUserData: @Sendable (String) -> AsyncStream<TaskResult<UserData>> = { _ in
-        AsyncStream { continuation in
-            continuation.finish()
-        }
-    }
+    var streamUserData: @Sendable (String) -> AsyncStream<UserData>
 
     /// Stream user document updates
-    var streamUserDocument: @Sendable (String) -> AsyncStream<TaskResult<UserData>> = { _ in
-        AsyncStream { continuation in
-            continuation.finish()
-        }
-    }
+    var streamUserDocument: @Sendable (String) -> AsyncStream<UserData>
 
     /// Update user document with arbitrary fields
-    var updateUserDocument: @Sendable (String, [String: Any]) async throws -> Void = { _, _ in }
+    var updateUserDocument: @Sendable (String, [String: Any]) async throws -> Void
 
     /// Update user profile
-    var updateProfile: @Sendable (String, ProfileUpdate) async throws -> Void = { _, _ in }
+    var updateProfile: @Sendable (String, ProfileUpdate) async throws -> Void
 
     /// Update notification preferences
-    var updateNotificationPreferences: @Sendable (String, NotificationPreferences) async throws -> Void = { _, _ in }
+    var updateNotificationPreferences: @Sendable (String, NotificationPreferences) async throws -> Void
 
     /// Update check-in interval
-    var updateCheckInInterval: @Sendable (String, TimeInterval) async throws -> Void = { _, _ in }
+    var updateCheckInInterval: @Sendable (String, TimeInterval) async throws -> Void
 
     /// Perform check-in
-    var checkIn: @Sendable (String) async throws -> Void = { _ in }
+    var checkIn: @Sendable (String) async throws -> Void
 
     /// Trigger manual alert
-    var triggerManualAlert: @Sendable (String) async throws -> Void = { _ in }
+    var triggerManualAlert: @Sendable (String) async throws -> Void
 
     /// Clear manual alert
-    var clearManualAlert: @Sendable (String) async throws -> Void = { _ in }
+    var clearManualAlert: @Sendable (String) async throws -> Void
 }
 
 // MARK: - Live Implementation
@@ -97,35 +89,109 @@ extension FirebaseUserClient: DependencyKey {
 
         streamUserData: { userId in
             FirebaseLogger.user.debug("Starting user data stream for user: \(userId)")
-            return FirestoreStreamHelper.documentStream(
-                path: "\(FirestoreConstants.Collections.users)/\(userId)",
-                logger: FirebaseLogger.user
-            ) { snapshot in
-                guard let data = snapshot.data() else {
-                    FirebaseLogger.user.warning("Document exists but has no data")
-                    throw FirebaseError.emptyDocument
+
+            // Create a new AsyncStream that transforms the TaskResult stream into a UserData stream
+            return AsyncStream<UserData> { continuation in
+                // Create a task to handle the stream
+                let task = Task {
+                    do {
+                        // Get the original stream with TaskResult
+                        let taskResultStream = FirestoreStreamHelper.documentStream(
+                            path: "\(FirestoreConstants.Collections.users)/\(userId)",
+                            logger: FirebaseLogger.user
+                        ) { snapshot in
+                            guard let data = snapshot.data() else {
+                                FirebaseLogger.user.warning("Document exists but has no data")
+                                throw FirebaseError.emptyDocument
+                            }
+
+                            let userData = UserData.fromFirestore(data, userId: userId)
+                            FirebaseLogger.user.debug("Received user data update for user: \(userId)")
+                            return userData
+                        }
+
+                        // Process the TaskResult stream
+                        for await result in taskResultStream {
+                            switch result {
+                            case .success(let userData):
+                                continuation.yield(userData)
+                            case .failure(let error):
+                                FirebaseLogger.user.error("Error in user data stream: \(error.localizedDescription)")
+                                // Map the error to a UserFacingError for better handling
+                                let userFacingError = UserFacingError.from(error)
+                                FirebaseLogger.user.debug("Mapped to user facing error: \(userFacingError)")
+                                // We don't propagate errors in the stream, just log them
+                                // This makes the stream more resilient and easier to use
+                                continue
+                            }
+                        }
+
+                        // If we get here, the stream has ended
+                        continuation.finish()
+                    } catch {
+                        FirebaseLogger.user.error("Fatal error in user data stream: \(error.localizedDescription)")
+                        continuation.finish()
+                    }
                 }
 
-                let userData = UserData.fromFirestore(data, userId: userId)
-                FirebaseLogger.user.debug("Received user data update for user: \(userId)")
-                return userData
+                // Set up cancellation
+                continuation.onTermination = { _ in
+                    task.cancel()
+                }
             }
         },
 
         streamUserDocument: { userId in
             FirebaseLogger.user.debug("Starting user document stream for user: \(userId)")
-            return FirestoreStreamHelper.documentStream(
-                path: "\(FirestoreConstants.Collections.users)/\(userId)",
-                logger: FirebaseLogger.user
-            ) { snapshot in
-                guard let data = snapshot.data() else {
-                    FirebaseLogger.user.warning("Document exists but has no data")
-                    throw FirebaseError.emptyDocument
+
+            // Create a new AsyncStream that transforms the TaskResult stream into a UserData stream
+            return AsyncStream<UserData> { continuation in
+                // Create a task to handle the stream
+                let task = Task {
+                    do {
+                        // Get the original stream with TaskResult
+                        let taskResultStream = FirestoreStreamHelper.documentStream(
+                            path: "\(FirestoreConstants.Collections.users)/\(userId)",
+                            logger: FirebaseLogger.user
+                        ) { snapshot in
+                            guard let data = snapshot.data() else {
+                                FirebaseLogger.user.warning("Document exists but has no data")
+                                throw FirebaseError.emptyDocument
+                            }
+
+                            let userData = UserData.fromFirestore(data, userId: userId)
+                            FirebaseLogger.user.debug("Received user document update for user: \(userId)")
+                            return userData
+                        }
+
+                        // Process the TaskResult stream
+                        for await result in taskResultStream {
+                            switch result {
+                            case .success(let userData):
+                                continuation.yield(userData)
+                            case .failure(let error):
+                                FirebaseLogger.user.error("Error in user document stream: \(error.localizedDescription)")
+                                // Map the error to a UserFacingError for better handling
+                                let userFacingError = UserFacingError.from(error)
+                                FirebaseLogger.user.debug("Mapped to user facing error: \(userFacingError)")
+                                // We don't propagate errors in the stream, just log them
+                                // This makes the stream more resilient and easier to use
+                                continue
+                            }
+                        }
+
+                        // If we get here, the stream has ended
+                        continuation.finish()
+                    } catch {
+                        FirebaseLogger.user.error("Fatal error in user document stream: \(error.localizedDescription)")
+                        continuation.finish()
+                    }
                 }
 
-                let userData = UserData.fromFirestore(data, userId: userId)
-                FirebaseLogger.user.debug("Received user document update for user: \(userId)")
-                return userData
+                // Set up cancellation
+                continuation.onTermination = { _ in
+                    task.cancel()
+                }
             }
         },
 
@@ -265,45 +331,45 @@ extension FirebaseUserClient: DependencyKey {
 
 // MARK: - Test Implementation
 
-extension FirebaseUserClient {
+extension FirebaseUserClient: TestDependencyKey {
     /// A test implementation that returns predefined values for testing
     static let testValue = Self(
-        getUserData: { _ in .empty },
-        getUserDocument: { _ in .empty },
-        streamUserData: { _ in
+        getUserData: unimplemented("\(Self.self).getUserData", placeholder: .empty),
+        getUserDocument: unimplemented("\(Self.self).getUserDocument", placeholder: .empty),
+        streamUserData: unimplemented("\(Self.self).streamUserData", placeholder: { _ in
             AsyncStream { continuation in
-                continuation.yield(.success(.empty))
+                continuation.yield(.empty)
                 continuation.finish()
             }
-        },
-        streamUserDocument: { _ in
+        }),
+        streamUserDocument: unimplemented("\(Self.self).streamUserDocument", placeholder: { _ in
             AsyncStream { continuation in
-                continuation.yield(.success(.empty))
+                continuation.yield(.empty)
                 continuation.finish()
             }
-        },
-        updateUserDocument: { _, _ in },
-        updateProfile: { _, _ in },
-        updateNotificationPreferences: { _, _ in },
-        updateCheckInInterval: { _, _ in },
-        checkIn: { _ in },
-        triggerManualAlert: { _ in },
-        clearManualAlert: { _ in }
+        }),
+        updateUserDocument: unimplemented("\(Self.self).updateUserDocument"),
+        updateProfile: unimplemented("\(Self.self).updateProfile"),
+        updateNotificationPreferences: unimplemented("\(Self.self).updateNotificationPreferences"),
+        updateCheckInInterval: unimplemented("\(Self.self).updateCheckInInterval"),
+        checkIn: unimplemented("\(Self.self).checkIn"),
+        triggerManualAlert: unimplemented("\(Self.self).triggerManualAlert"),
+        clearManualAlert: unimplemented("\(Self.self).clearManualAlert")
     )
 
     /// A mock implementation that returns predefined values for testing
     static func mock(
         getUserData: @escaping @Sendable (String) async throws -> UserData = { _ in .empty },
         getUserDocument: @escaping @Sendable (String) async throws -> UserData = { _ in .empty },
-        streamUserData: @escaping @Sendable (String) -> AsyncStream<TaskResult<UserData>> = { _ in
-            AsyncStream<TaskResult<UserData>> { continuation in
-                continuation.yield(.success(.empty))
+        streamUserData: @escaping @Sendable (String) -> AsyncStream<UserData> = { _ in
+            AsyncStream<UserData> { continuation in
+                continuation.yield(.empty)
                 continuation.finish()
             }
         },
-        streamUserDocument: @escaping @Sendable (String) -> AsyncStream<TaskResult<UserData>> = { _ in
-            AsyncStream<TaskResult<UserData>> { continuation in
-                continuation.yield(.success(.empty))
+        streamUserDocument: @escaping @Sendable (String) -> AsyncStream<UserData> = { _ in
+            AsyncStream<UserData> { continuation in
+                continuation.yield(.empty)
                 continuation.finish()
             }
         },

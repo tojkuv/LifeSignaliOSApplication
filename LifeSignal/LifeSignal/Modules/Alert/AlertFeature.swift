@@ -48,16 +48,16 @@ struct AlertFeature {
 
         /// Trigger manual alert
         case triggerManualAlert
-        case triggerManualAlertResponse(TaskResult<Void>)
+        case triggerManualAlertResponse(Result<Void, Error>)
 
         /// Clear manual alert
         case clearManualAlert
-        case clearManualAlertResponse(TaskResult<Void>)
+        case clearManualAlertResponse(Result<Void, Error>)
 
         /// Clear any error state
         case clearError
 
-        /// Custom Equatable implementation to handle TaskResult<Void>
+        /// Custom Equatable implementation to handle Result<Void, Error>
         static func == (lhs: Action, rhs: Action) -> Bool {
             switch (lhs, rhs) {
             case let (.updateAlertState(lhsActive, lhsTimestamp), .updateAlertState(rhsActive, rhsTimestamp)):
@@ -133,10 +133,8 @@ struct AlertFeature {
                 state.alertTimestamp = Date()
 
                 return .run { [firebaseUserClient, firebaseNotification, firebaseAuth] send in
-                    let result = await TaskResult {
-                        guard let userId = await firebaseAuth.currentUserId() else {
-                            throw NSError(domain: "AlertFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
-                        }
+                    do {
+                        let userId = try await firebaseAuth.currentUserId()
 
                         // Get user name for notification
                         let userData = try await firebaseUserClient.getUserDocument(userId)
@@ -150,8 +148,11 @@ struct AlertFeature {
                             // Log that notification wasn't sent, but don't throw an error
                             print("Warning: Manual alert notification could not be sent for user \(userData.name)")
                         }
+
+                        await send(.triggerManualAlertResponse(.success(())))
+                    } catch {
+                        await send(.triggerManualAlertResponse(.failure(error)))
                     }
-                    await send(.triggerManualAlertResponse(result))
                 }
 
             case let .triggerManualAlertResponse(result):
@@ -175,10 +176,8 @@ struct AlertFeature {
                 state.alertTimestamp = nil
 
                 return .run { [firebaseUserClient, firebaseNotification, firebaseAuth] send in
-                    let result = await TaskResult {
-                        guard let userId = await firebaseAuth.currentUserId() else {
-                            throw NSError(domain: "AlertFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
-                        }
+                    do {
+                        let userId = try await firebaseAuth.currentUserId()
 
                         // Get user name for notification
                         let userData = try await firebaseUserClient.getUserDocument(userId)
@@ -192,8 +191,11 @@ struct AlertFeature {
                             // Log that notification wasn't sent, but don't throw an error
                             print("Warning: Manual alert clear notification could not be sent for user \(userData.name)")
                         }
+
+                        await send(.clearManualAlertResponse(.success(())))
+                    } catch {
+                        await send(.clearManualAlertResponse(.failure(error)))
                     }
-                    await send(.clearManualAlertResponse(result))
                 }
 
             case let .clearManualAlertResponse(result):

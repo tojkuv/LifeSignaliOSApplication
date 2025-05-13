@@ -1,6 +1,22 @@
 import Foundation
-import FirebaseFirestore
+@preconcurrency import FirebaseFirestore
 import OSLog
+
+/// A result type for asynchronous tasks
+enum TaskResult<Success> {
+    case success(Success)
+    case failure(Error)
+
+    /// Maps the error in a failure case to a new error type
+    func mapError<NewError: Error>(_ transform: (Error) -> NewError) -> TaskResult<Success> {
+        switch self {
+        case .success(let value):
+            return .success(value)
+        case .failure(let error):
+            return .failure(transform(error))
+        }
+    }
+}
 
 /// Helper for creating Firestore streams
 enum FirestoreStreamHelper {
@@ -62,7 +78,7 @@ enum FirestoreStreamHelper {
             }
 
             // Set up cancellation
-            continuation.onTermination = { _ in
+            continuation.onTermination = { [listener] _ in
                 logger.debug("Terminating document listener for path: \(path)")
                 listener.remove()
             }
@@ -132,7 +148,7 @@ enum FirestoreStreamHelper {
             }
 
             // Set up cancellation
-            continuation.onTermination = { _ in
+            continuation.onTermination = { [listener] _ in
                 logger.debug("Terminating collection listener for path: \(path)")
                 listener.remove()
             }

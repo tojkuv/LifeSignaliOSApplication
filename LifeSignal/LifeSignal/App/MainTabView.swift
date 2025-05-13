@@ -31,6 +31,7 @@ struct MainTabView: View {
                         state: \.home,
                         action: \.home
                     ))
+                    .environment(\.store, store)
                 }
                 .tabItem {
                     Label("Home", systemImage: "house")

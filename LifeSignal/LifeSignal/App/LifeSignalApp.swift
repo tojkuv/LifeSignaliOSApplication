@@ -27,7 +27,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         super.init()
 
         // Set up callback for FCM token updates
-        tokenUpdateCallback = { [weak self] token in
+        tokenUpdateCallback = { @Sendable [weak self] token in
             // Post a notification that the ContentView can listen for
             NotificationCenter.default.post(
                 name: NSNotification.Name("FCMTokenUpdated"),
@@ -37,7 +37,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         }
 
         // Register for token updates
-        firebaseMessaging.registerForTokenUpdates(tokenUpdateCallback!)
+        Task { @MainActor in
+            firebaseMessaging.registerForTokenUpdates(tokenUpdateCallback!)
+        }
 
         // Set up notification center delegate
         firebaseNotification.setNotificationDelegate(self)
@@ -45,11 +47,15 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     deinit {
         // Unregister from token updates
-        firebaseMessaging.unregisterFromTokenUpdates()
+        Task { @MainActor in
+            firebaseMessaging.unregisterFromTokenUpdates()
+        }
 
         // Remove auth state observer
         if let observer = authStateObserver {
-            firebaseApp.removeAuthStateListener(observer)
+            Task { @MainActor in
+                firebaseApp.removeAuthStateListener(observer)
+            }
         }
     }
 
@@ -70,13 +76,15 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         }
 
         // Set up auth state listener
-        authStateObserver = firebaseApp.addAuthStateListener { [weak self] (auth, user) in
-            // Post a notification that the ContentView can listen for
-            NotificationCenter.default.post(
-                name: NSNotification.Name("AuthStateChanged"),
-                object: nil,
-                userInfo: ["user": user as Any]
-            )
+        Task { @MainActor in
+            authStateObserver = firebaseApp.addAuthStateListener { [weak self] (auth, user) in
+                // Post a notification that the ContentView can listen for
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("AuthStateChanged"),
+                    object: nil,
+                    userInfo: ["user": user as Any]
+                )
+            }
         }
 
         return true
@@ -122,18 +130,22 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     // MARK: - UNUserNotificationCenterDelegate Methods
 
-    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
+    @MainActor
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
         // Post a notification that the ContentView can listen for
-        NotificationCenter.default.post(
-            name: NSNotification.Name("NotificationResponseReceived"),
-            object: nil,
-            userInfo: ["response": response]
-        )
+        Task { @MainActor in
+            NotificationCenter.default.post(
+                name: NSNotification.Name("NotificationResponseReceived"),
+                object: nil,
+                userInfo: ["response": response]
+            )
+        }
 
         completionHandler()
     }
 
-    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+    @MainActor
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         // Always show notifications when app is in foreground
         completionHandler([.banner, .sound, .badge])
     }
@@ -169,7 +181,8 @@ struct LifeSignalApp: App {
         }
         #endif
 
-        _appDelegate = UIApplicationDelegateAdaptor(AppDelegate.self, store: store)
+        _appDelegate = UIApplicationDelegateAdaptor(AppDelegate.self)
+        appDelegate.store = store
     }
 
     var body: some Scene {

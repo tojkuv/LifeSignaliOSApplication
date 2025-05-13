@@ -6,35 +6,31 @@ import FirebaseFunctions
 import XCTestDynamicOverlay
 import OSLog
 import Dependencies
+import DependenciesMacros
 
 /// A client for interacting with Firebase contacts data
 @DependencyClient
 struct FirebaseContactsClient: Sendable {
     /// Stream contacts collection updates
-    var streamContacts: @Sendable (_ userId: String) -> AsyncStream<TaskResult<[ContactData]>> = { _ in
-        AsyncStream { continuation in
-            continuation.yield(.success([]))
-            continuation.finish()
-        }
-    }
+    var streamContacts: @Sendable (String) -> AsyncStream<[ContactData]>
 
     /// Get contacts collection once
-    var getContacts: @Sendable (_ userId: String) async throws -> [ContactData] = { _ in [] }
+    var getContacts: @Sendable (String) async throws -> [ContactData]
 
     /// Add a new contact
-    var addContact: @Sendable (_ userId: String, _ contactId: String, _ contactData: [String: Any]) async throws -> Void = { _, _, _ in }
+    var addContact: @Sendable (String, String, [String: Any]) async throws -> Void
 
     /// Update a contact
-    var updateContact: @Sendable (_ userId: String, _ contactId: String, _ fields: [String: Any]) async throws -> Void = { _, _, _ in }
+    var updateContact: @Sendable (String, String, [String: Any]) async throws -> Void
 
     /// Delete a contact
-    var deleteContact: @Sendable (_ userId: String, _ contactId: String) async throws -> Void = { _, _ in }
+    var deleteContact: @Sendable (String, String) async throws -> Void
 
     /// Look up a user by QR code
-    var lookupUserByQRCode: @Sendable (_ qrCode: String) async throws -> (id: String, name: String, phone: String, emergencyNote: String) = { _ in ("", "", "", "") }
+    var lookupUserByQRCode: @Sendable (String) async throws -> (id: String, name: String, phone: String, emergencyNote: String)
 
     /// Add a contact relation using Firebase Functions
-    var addContactRelation: @Sendable (_ userId: String, _ contactId: String, _ isResponder: Bool, _ isDependent: Bool) async throws -> Void = { _, _, _, _ in }
+    var addContactRelation: @Sendable (String, String, Bool, Bool) async throws -> Void
 }
 
 // MARK: - Live Implementation
@@ -43,52 +39,89 @@ extension FirebaseContactsClient: DependencyKey {
     static let liveValue = Self(
         streamContacts: { userId in
             FirebaseLogger.contacts.debug("Starting contacts stream for user: \(userId)")
-            return FirestoreStreamHelper.collectionStream(
-                path: "\(FirestoreConstants.Collections.users)/\(userId)/\(FirestoreConstants.Collections.contacts)",
-                logger: FirebaseLogger.contacts
-            ) { snapshot in
-                FirebaseLogger.contacts.debug("Processing contacts snapshot with \(snapshot.documents.count) documents")
-                var contacts: [ContactData] = []
-                let db = Firestore.firestore()
 
-                // Process each contact document
-                for contactDoc in snapshot.documents {
-                    let contactId = contactDoc.documentID
-                    let contactData = contactDoc.data()
-
-                    // Get the contact's user document
+            // Create a new AsyncStream that transforms the TaskResult stream into a ContactData stream
+            return AsyncStream<[ContactData]> { continuation in
+                // Create a task to handle the stream
+                let task = Task {
                     do {
-                        let documentSnapshot = try await db.collection(FirestoreConstants.Collections.users).document(contactId).getDocument()
+                        // Get the original stream with TaskResult
+                        let taskResultStream = FirestoreStreamHelper.collectionStream(
+                            path: "\(FirestoreConstants.Collections.users)/\(userId)/\(FirestoreConstants.Collections.contacts)",
+                            logger: FirebaseLogger.contacts
+                        ) { snapshot in
+                            FirebaseLogger.contacts.debug("Processing contacts snapshot with \(snapshot.documents.count) documents")
+                            var contacts: [ContactData] = []
+                            let db = Firestore.firestore()
 
-                        guard documentSnapshot.exists, let contactUserData = documentSnapshot.data() else {
-                            FirebaseLogger.contacts.warning("Contact user document not found or empty for ID: \(contactId)")
-                            continue
-                        }
+                            // Process each contact document
+                            for contactDoc in snapshot.documents {
+                                let contactId = contactDoc.documentID
+                                let contactData = contactDoc.data()
 
-                        // Create contact from the data
-                        if let contact = ContactData.fromFirestore(contactData, id: contactId) {
-                            // Update with user data
-                            var updatedContact = contact
-                            updatedContact.name = contactUserData[FirestoreConstants.UserFields.name] as? String ?? "Unknown User"
+                                // Get the contact's user document
+                                do {
+                                    let documentSnapshot = try await db.collection(FirestoreConstants.Collections.users).document(contactId).getDocument()
 
-                            if let lastCheckedIn = contactUserData[FirestoreConstants.UserFields.lastCheckedIn] as? Timestamp {
-                                updatedContact.lastCheckedIn = lastCheckedIn.dateValue()
+                                    guard documentSnapshot.exists, let contactUserData = documentSnapshot.data() else {
+                                        FirebaseLogger.contacts.warning("Contact user document not found or empty for ID: \(contactId)")
+                                        continue
+                                    }
+
+                                    // Create contact from the data
+                                    if let contact = ContactData.fromFirestore(contactData, id: contactId) {
+                                        // Update with user data
+                                        var updatedContact = contact
+                                        updatedContact.name = contactUserData[FirestoreConstants.UserFields.name] as? String ?? "Unknown User"
+
+                                        if let lastCheckedIn = contactUserData[FirestoreConstants.UserFields.lastCheckedIn] as? Timestamp {
+                                            updatedContact.lastCheckedIn = lastCheckedIn.dateValue()
+                                        }
+
+                                        if let checkInInterval = contactUserData[FirestoreConstants.UserFields.checkInInterval] as? TimeInterval {
+                                            updatedContact.checkInInterval = checkInInterval
+                                        }
+
+                                        contacts.append(updatedContact)
+                                    }
+                                } catch {
+                                    FirebaseLogger.contacts.error("Error getting contact user document for ID \(contactId): \(error.localizedDescription)")
+                                    // Continue processing other contacts even if one fails
+                                }
                             }
 
-                            if let checkInInterval = contactUserData[FirestoreConstants.UserFields.checkInInterval] as? TimeInterval {
-                                updatedContact.checkInInterval = checkInInterval
-                            }
-
-                            contacts.append(updatedContact)
+                            FirebaseLogger.contacts.info("Processed \(contacts.count) contacts for user: \(userId)")
+                            return contacts
                         }
+
+                        // Process the TaskResult stream
+                        for await result in taskResultStream {
+                            switch result {
+                            case .success(let contactsData):
+                                continuation.yield(contactsData)
+                            case .failure(let error):
+                                FirebaseLogger.contacts.error("Error in contacts stream: \(error.localizedDescription)")
+                                // Map the error to a UserFacingError for better handling
+                                let userFacingError = UserFacingError.from(error)
+                                FirebaseLogger.contacts.debug("Mapped to user facing error: \(userFacingError)")
+                                // We don't propagate errors in the stream, just log them
+                                // This makes the stream more resilient and easier to use
+                                continue
+                            }
+                        }
+
+                        // If we get here, the stream has ended
+                        continuation.finish()
                     } catch {
-                        FirebaseLogger.contacts.error("Error getting contact user document for ID \(contactId): \(error.localizedDescription)")
-                        // Continue processing other contacts even if one fails
+                        FirebaseLogger.contacts.error("Fatal error in contacts stream: \(error.localizedDescription)")
+                        continuation.finish()
                     }
                 }
 
-                FirebaseLogger.contacts.info("Processed \(contacts.count) contacts for user: \(userId)")
-                return contacts
+                // Set up cancellation
+                continuation.onTermination = { _ in
+                    task.cancel()
+                }
             }
         },
 
@@ -248,7 +281,7 @@ extension FirebaseContactsClient: TestDependencyKey {
     static let testValue = Self(
         streamContacts: unimplemented("\(Self.self).streamContacts", placeholder: { _ in
             AsyncStream { continuation in
-                continuation.yield(.success([]))
+                continuation.yield([])
                 continuation.finish()
             }
         }),
@@ -262,9 +295,9 @@ extension FirebaseContactsClient: TestDependencyKey {
 
     /// A mock implementation that returns predefined values for testing
     static func mock(
-        streamContacts: @escaping (String) -> AsyncStream<TaskResult<[ContactData]>> = { _ in
+        streamContacts: @escaping (String) -> AsyncStream<[ContactData]> = { _ in
             AsyncStream { continuation in
-                continuation.yield(.success([]))
+                continuation.yield([])
                 continuation.finish()
             }
         },

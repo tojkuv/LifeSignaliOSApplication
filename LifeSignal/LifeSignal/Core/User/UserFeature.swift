@@ -9,7 +9,7 @@ import FirebaseFirestore
 struct UserFeature {
     /// Cancellation IDs for long-running effects
     enum CancelID: Hashable, Sendable {
-        case userDataStream
+        // No longer need userDataStream as it's handled at the AppFeature level
     }
 
     /// The state of the user feature
@@ -21,23 +21,9 @@ struct UserFeature {
         /// Loading state
         var isLoading: Bool = false
 
-        /// Error state using AlertState for better error handling
-        @Presents var alert: AlertState<Action.Alert>?
-
-        /// Stream state
-        var isStreamActive: Bool = false
-
         /// Child feature states
         @Presents var profile: ProfileFeature.State?
         @Presents var checkIn: CheckInFeature.State?
-
-        /// Custom Equatable implementation
-        static func == (lhs: State, rhs: State) -> Bool {
-            lhs.userData == rhs.userData &&
-            lhs.isLoading == rhs.isLoading &&
-            lhs.isStreamActive == rhs.isStreamActive
-            // Alert state is handled by @Presents
-        }
 
         /// Initialize with default values
         init() {}
@@ -50,42 +36,44 @@ struct UserFeature {
 
         /// Load user data
         case loadUserData
-        case loadUserDataResponse(TaskResult<UserData>)
+        case loadUserDataResponse(UserData)
+        case loadUserDataFailed(UserFacingError)
 
-        // MARK: - Stream Management
-
-        /// Stream user data
-        case startUserDataStream
-        case userDataStreamResponse(UserData)
-        case stopUserDataStream
+        // Stream management is now handled at the AppFeature level
 
         // MARK: - Profile Operations
 
         /// Update profile
         case updateProfile(name: String, emergencyNote: String)
-        case updateProfileResponse(TaskResult<Void>)
+        case updateProfileSucceeded
+        case updateProfileFailed(UserFacingError)
 
         /// Update notification preferences
         case updateNotificationPreferences(enabled: Bool, notify30MinBefore: Bool, notify2HoursBefore: Bool)
-        case updateNotificationPreferencesResponse(TaskResult<Void>)
+        case updateNotificationPreferencesSucceeded
+        case updateNotificationPreferencesFailed(UserFacingError)
 
         // MARK: - Check-in Operations
 
         /// Perform check-in
         case checkIn
-        case checkInResponse(TaskResult<Void>)
+        case checkInSucceeded
+        case checkInFailed(UserFacingError)
 
         /// Update check-in interval
         case updateCheckInInterval(TimeInterval)
-        case updateCheckInIntervalResponse(TaskResult<Void>)
+        case updateCheckInIntervalSucceeded
+        case updateCheckInIntervalFailed(UserFacingError)
 
         /// Trigger manual alert
         case triggerManualAlert
-        case triggerManualAlertResponse(TaskResult<Void>)
+        case triggerManualAlertSucceeded
+        case triggerManualAlertFailed(UserFacingError)
 
         /// Clear manual alert
         case clearManualAlert
-        case clearManualAlertResponse(TaskResult<Void>)
+        case clearManualAlertSucceeded
+        case clearManualAlertFailed(UserFacingError)
 
         // MARK: - Child Feature Actions
 
@@ -95,61 +83,50 @@ struct UserFeature {
         /// Check-in feature actions
         case checkInAction(PresentationAction<CheckInFeature.Action>)
 
-        // MARK: - Error Handling
-
-        /// Alert actions for error handling
-        case alert(PresentationAction<Alert>)
-
-        /// Alert actions enum
-        enum Alert: Equatable, Sendable {
-            case dismiss
-            case retry
-        }
-
         // MARK: - Delegate Actions
 
         /// Delegate actions to notify parent features
         case delegate(DelegateAction)
 
-        enum DelegateAction: Sendable {
+        enum DelegateAction: Equatable, Sendable {
             /// User data was updated
             case userDataUpdated(UserData)
 
             /// User data loading failed
-            case userDataLoadFailed(Error)
+            case userDataLoadFailed(UserFacingError)
 
             /// Profile was updated
             case profileUpdated
 
+            /// Profile update failed
+            case profileUpdateFailed(UserFacingError)
+
+            /// Notification preferences update failed
+            case notificationPreferencesUpdateFailed(UserFacingError)
+
             /// Check-in was performed
             case checkInPerformed(Date)
+
+            /// Check-in failed
+            case checkInFailed(UserFacingError)
 
             /// Check-in interval was updated
             case checkInIntervalUpdated(TimeInterval)
 
+            /// Check-in interval update failed
+            case checkInIntervalUpdateFailed(UserFacingError)
+
+            /// Manual alert trigger failed
+            case manualAlertTriggerFailed(UserFacingError)
+
+            /// Manual alert clear failed
+            case manualAlertClearFailed(UserFacingError)
+
+            /// Phone number update failed
+            case phoneNumberUpdateFailed(UserFacingError)
+
             /// User signed out
             case userSignedOut
-
-            /// Custom Equatable implementation to handle Error
-            static func == (lhs: DelegateAction, rhs: DelegateAction) -> Bool {
-                switch (lhs, rhs) {
-                case let (.userDataUpdated(lhsData), .userDataUpdated(rhsData)):
-                    return lhsData == rhsData
-                case (.userDataLoadFailed, .userDataLoadFailed):
-                    // Just compare the case, not the associated Error value
-                    return true
-                case (.profileUpdated, .profileUpdated):
-                    return true
-                case let (.checkInPerformed(lhsDate), .checkInPerformed(rhsDate)):
-                    return lhsDate == rhsDate
-                case let (.checkInIntervalUpdated(lhsInterval), .checkInIntervalUpdated(rhsInterval)):
-                    return lhsInterval == rhsInterval
-                case (.userSignedOut, .userSignedOut):
-                    return true
-                default:
-                    return false
-                }
-            }
         }
     }
 
@@ -167,142 +144,63 @@ struct UserFeature {
 
             case .loadUserData:
                 state.isLoading = true
-                return .run { [firebaseUserClient] send in
-                    let result = await TaskResult {
-                        // Load all user data at once
-                        guard let userId = firebaseAuth.currentUserId() else {
-                            throw NSError(domain: "UserFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
-                        }
+                return .run { [firebaseUserClient, firebaseAuth] send in
+                    do {
+                        // Get the authenticated user ID or throw if not available
+                        let userId = try await firebaseAuth.currentUserId()
 
                         // Get the user document using the client
-                        return try await firebaseUserClient.getUserDocument(userId)
-                    }
-                    await send(.loadUserDataResponse(result))
-                }
-
-            case let .loadUserDataResponse(result):
-                state.isLoading = false
-                switch result {
-                case let .success(userData):
-                    // Update user data directly
-                    state.userData = userData
-
-                    // Initialize child feature states if needed
-                    if state.checkIn == nil {
-                        state.checkIn = CheckInFeature.State(
-                            lastCheckedIn: userData.lastCheckedIn,
-                            checkInInterval: userData.checkInInterval
-                        )
-                    } else {
-                        // Update check-in data in child feature
-                        state.checkIn?.lastCheckedIn = userData.lastCheckedIn
-                        state.checkIn?.checkInInterval = userData.checkInInterval
-                    }
-
-                    // Initialize profile feature state if needed
-                    if state.profile == nil {
-                        state.profile = ProfileFeature.State(userData: userData)
-                    } else {
-                        // Update user data in profile feature
-                        state.profile?.userData = userData
-                    }
-
-                    // Notify delegate that user data was updated
-                    return .send(.delegate(.userDataUpdated(userData)))
-
-                case let .failure(error):
-                    // Use AlertState for error handling
-                    state.alert = AlertState {
-                        TextState("Error Loading User Data")
-                    } actions: {
-                        ButtonState(role: .cancel) {
-                            TextState("Dismiss")
-                        }
-                        ButtonState(action: .retry) {
-                            TextState("Retry")
-                        }
-                    } message: {
-                        TextState(error.localizedDescription)
-                    }
-                    return .send(.delegate(.userDataLoadFailed(error)))
-                }
-
-            // MARK: - Stream Management
-
-            case .startUserDataStream:
-                // Only start the stream if it's not already active
-                guard !state.isStreamActive else { return .none }
-
-                state.isStreamActive = true
-
-                // Start streaming user data using the Firebase client with TCA's recommended pattern
-                return .run { [firebaseUserClient, firebaseAuth] send in
-                    guard let userId = firebaseAuth.currentUserId() else {
-                        await send(.loadUserDataResponse(.failure(
-                            NSError(domain: "UserFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
-                        )))
-                        return
-                    }
-
-                    // Use a while loop for better control and error handling
-                    do {
-                        // Create a stream of user document updates
-                        for await result in firebaseUserClient.streamUserDocument(userId) {
-                            switch result {
-                            case let .success(userData):
-                                await send(.userDataStreamResponse(userData))
-                            case let .failure(error):
-                                // Only update error state for persistent errors
-                                if let nsError = error as NSError?,
-                                   nsError.domain != FirestoreErrorDomain ||
-                                   nsError.code != FirestoreErrorCode.unavailable.rawValue {
-                                    await send(.loadUserDataResponse(.failure(error)))
-                                }
-
-                                // For temporary errors, wait a bit and continue
-                                try await Task.sleep(for: .seconds(1))
-                            }
-
-                            // Cooperate with the task system
-                            await Task.yield()
-                        }
+                        let userData = try await firebaseUserClient.getUserDocument(userId)
+                        await send(.loadUserDataResponse(userData))
                     } catch {
-                        // If we get here with an error, the stream has ended unexpectedly
-                        await send(.loadUserDataResponse(.failure(error)))
+                        // Map the error to a user-facing error
+                        let userFacingError = UserFacingError.from(error)
+
+                        // Handle error directly in the effect
+                        await send(.loadUserDataFailed(userFacingError))
+
+                        // Notify delegate about the failure with the user-facing error
+                        await send(.delegate(.userDataLoadFailed(userFacingError)))
                     }
-
-                    // If we get here, the stream has ended
-                    await send(.stopUserDataStream)
                 }
-                .cancellable(id: CancelID.userDataStream)
 
-            case let .userDataStreamResponse(userData):
-                // Update user data with the latest data from the stream
+            case let .loadUserDataResponse(userData):
+                state.isLoading = false
+
+                // Update user data directly
                 state.userData = userData
 
-                // Update check-in data in child feature if it exists
-                if state.checkIn != nil {
+                // Initialize child feature states if needed
+                if state.checkIn == nil {
+                    state.checkIn = CheckInFeature.State(
+                        lastCheckedIn: userData.lastCheckedIn,
+                        checkInInterval: userData.checkInInterval
+                    )
+                } else {
+                    // Update check-in data in child feature
                     state.checkIn?.lastCheckedIn = userData.lastCheckedIn
                     state.checkIn?.checkInInterval = userData.checkInInterval
                 }
 
-                // Update profile data in child feature if it exists
-                if state.profile != nil {
+                // Initialize profile feature state if needed
+                if state.profile == nil {
+                    state.profile = ProfileFeature.State(userData: userData)
+                } else {
+                    // Update user data in profile feature
                     state.profile?.userData = userData
-                }
-
-                // Clear any previous error since we received valid data
-                if state.alert != nil {
-                    state.alert = nil
                 }
 
                 // Notify delegate that user data was updated
                 return .send(.delegate(.userDataUpdated(userData)))
 
-            case .stopUserDataStream:
-                // Stop the user data stream
-                state.isStreamActive = false
-                return .cancel(id: CancelID.userDataStream)
+            case let .loadUserDataFailed(error):
+                state.isLoading = false
+                // Log the error but don't take any additional action
+                // The parent feature will handle displaying the error to the user
+                FirebaseLogger.user.error("User data loading failed: \(error)")
+                return .none
+
+            // Stream management is now handled at the AppFeature level
 
             // MARK: - Profile Operations
 
@@ -315,44 +213,44 @@ struct UserFeature {
                 state.userData.profileComplete = true
 
                 return .run { [firebaseUserClient, firebaseAuth] send in
-                    let result = await TaskResult {
-                        guard let userId = firebaseAuth.currentUserId() else {
-                            throw NSError(domain: "UserFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
-                        }
+                    do {
+                        // Get the authenticated user ID or throw if not available
+                        let userId = try await firebaseAuth.currentUserId()
 
                         // Create profile update
                         let update = ProfileUpdate(name: name, emergencyNote: emergencyNote)
 
                         // Update the profile using the client
                         try await firebaseUserClient.updateProfile(userId, update)
+
+                        // Send success response
+                        await send(.updateProfileSucceeded)
+
+                        // Notify delegate that profile was updated
+                        await send(.delegate(.profileUpdated))
+                    } catch {
+                        // Map the error to a user-facing error
+                        let userFacingError = UserFacingError.from(error)
+
+                        // Handle error directly in the effect
+                        await send(.updateProfileFailed(userFacingError))
+
+                        // Notify delegate about the failure with the user-facing error
+                        await send(.delegate(.profileUpdateFailed(userFacingError)))
+
+                        // Reload user data to revert changes if there was an error
+                        await send(.loadUserData)
                     }
-                    await send(.updateProfileResponse(result))
                 }
 
-            case let .updateProfileResponse(result):
+            case .updateProfileSucceeded:
                 state.isLoading = false
+                return .none
 
-                switch result {
-                case .success:
-                    return .send(.delegate(.profileUpdated))
-
-                case let .failure(error):
-                    // Use AlertState for error handling
-                    state.alert = AlertState {
-                        TextState("Profile Update Failed")
-                    } actions: {
-                        ButtonState(role: .cancel) {
-                            TextState("Dismiss")
-                        }
-                        ButtonState(action: .retry) {
-                            TextState("Retry")
-                        }
-                    } message: {
-                        TextState(error.localizedDescription)
-                    }
-                    // Reload user data to revert changes if there was an error
-                    return .send(.loadUserData)
-                }
+            case let .updateProfileFailed(error):
+                state.isLoading = false
+                FirebaseLogger.user.error("Profile update failed: \(error)")
+                return .none
 
             case let .updateNotificationPreferences(enabled, notify30MinBefore, notify2HoursBefore):
                 state.isLoading = true
@@ -363,10 +261,9 @@ struct UserFeature {
                 state.userData.notify2HoursBefore = notify2HoursBefore
 
                 return .run { [firebaseUserClient, firebaseAuth] send in
-                    let result = await TaskResult {
-                        guard let userId = firebaseAuth.currentUserId() else {
-                            throw NSError(domain: "UserFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
-                        }
+                    do {
+                        // Get the authenticated user ID or throw if not available
+                        let userId = try await firebaseAuth.currentUserId()
 
                         // Create notification preferences
                         let preferences = NotificationPreferences(
@@ -377,34 +274,32 @@ struct UserFeature {
 
                         // Update notification preferences using the client
                         try await firebaseUserClient.updateNotificationPreferences(userId, preferences)
+
+                        // Send success response
+                        await send(.updateNotificationPreferencesSucceeded)
+                    } catch {
+                        // Map the error to a user-facing error
+                        let userFacingError = UserFacingError.from(error)
+
+                        // Handle error directly in the effect
+                        await send(.updateNotificationPreferencesFailed(userFacingError))
+
+                        // Notify delegate about the failure with the user-facing error
+                        await send(.delegate(.notificationPreferencesUpdateFailed(userFacingError)))
+
+                        // Reload user data to revert changes if there was an error
+                        await send(.loadUserData)
                     }
-                    await send(.updateNotificationPreferencesResponse(result))
                 }
 
-            case let .updateNotificationPreferencesResponse(result):
+            case .updateNotificationPreferencesSucceeded:
                 state.isLoading = false
+                return .none
 
-                switch result {
-                case .success:
-                    return .none
-
-                case let .failure(error):
-                    // Use AlertState for error handling
-                    state.alert = AlertState {
-                        TextState("Notification Preferences Update Failed")
-                    } actions: {
-                        ButtonState(role: .cancel) {
-                            TextState("Dismiss")
-                        }
-                        ButtonState(action: .retry) {
-                            TextState("Retry")
-                        }
-                    } message: {
-                        TextState(error.localizedDescription)
-                    }
-                    // Reload user data to revert changes if there was an error
-                    return .send(.loadUserData)
-                }
+            case let .updateNotificationPreferencesFailed(error):
+                state.isLoading = false
+                FirebaseLogger.user.error("Notification preferences update failed: \(error)")
+                return .none
 
             // MARK: - Check-in Operations
 
@@ -421,10 +316,9 @@ struct UserFeature {
                 }
 
                 return .run { [firebaseUserClient, firebaseNotification, firebaseAuth, timeFormatter, checkInInterval = state.userData.checkInInterval] send in
-                    let result = await TaskResult {
-                        guard let userId = firebaseAuth.currentUserId() else {
-                            throw NSError(domain: "UserFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
-                        }
+                    do {
+                        // Get the authenticated user ID or throw if not available
+                        let userId = try await firebaseAuth.currentUserId()
 
                         // Get user data for notification preferences
                         let userData = try await firebaseUserClient.getUserDocument(userId)
@@ -433,7 +327,7 @@ struct UserFeature {
                         try await firebaseUserClient.checkIn(userId)
 
                         // Show a confirmation notification
-                        try await firebaseNotification.showLocalNotification(
+                        let _ = try await firebaseNotification.showLocalNotification(
                             title: "Check-in Successful",
                             body: "Your check-in has been recorded. Next check-in due in \(timeFormatter.formatTimeIntervalWithFullUnits(checkInInterval)).",
                             userInfo: ["type": "checkInConfirmation"]
@@ -470,35 +364,35 @@ struct UserFeature {
                                 reminderIds.append(reminderId)
                             }
                         }
+
+                        // Send success response
+                        await send(.checkInSucceeded)
+
+                        // Notify delegate that check-in was performed
+                        await send(.delegate(.checkInPerformed(now)))
+                    } catch {
+                        // Map the error to a user-facing error
+                        let userFacingError = UserFacingError.from(error)
+
+                        // Handle error directly in the effect
+                        await send(.checkInFailed(userFacingError))
+
+                        // Notify delegate about the failure with the user-facing error
+                        await send(.delegate(.checkInFailed(userFacingError)))
+
+                        // Reload user data to revert changes if there was an error
+                        await send(.loadUserData)
                     }
-                    await send(.checkInResponse(result))
                 }
 
-            case let .checkInResponse(result):
+            case .checkInSucceeded:
                 state.isLoading = false
+                return .none
 
-                switch result {
-                case .success:
-                    // Notify delegate that check-in was performed
-                    return .send(.delegate(.checkInPerformed(state.userData.lastCheckedIn)))
-
-                case let .failure(error):
-                    // Use AlertState for error handling
-                    state.alert = AlertState {
-                        TextState("Check-in Failed")
-                    } actions: {
-                        ButtonState(role: .cancel) {
-                            TextState("Dismiss")
-                        }
-                        ButtonState(action: .retry) {
-                            TextState("Retry")
-                        }
-                    } message: {
-                        TextState(error.localizedDescription)
-                    }
-                    // Reload user data to revert changes if there was an error
-                    return .send(.loadUserData)
-                }
+            case let .checkInFailed(error):
+                state.isLoading = false
+                FirebaseLogger.user.error("Check-in failed: \(error)")
+                return .none
 
             case let .updateCheckInInterval(interval):
                 state.isLoading = true
@@ -512,10 +406,9 @@ struct UserFeature {
                 }
 
                 return .run { [firebaseUserClient, firebaseNotification, firebaseAuth, timeFormatter] send in
-                    let result = await TaskResult {
-                        guard let userId = firebaseAuth.currentUserId() else {
-                            throw NSError(domain: "UserFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
-                        }
+                    do {
+                        // Get the authenticated user ID or throw if not available
+                        let userId = try await firebaseAuth.currentUserId()
 
                         // Get user data for notification preferences
                         let userData = try await firebaseUserClient.getUserDocument(userId)
@@ -555,40 +448,40 @@ struct UserFeature {
                         }
 
                         // Show a notification about the updated interval
-                        try await firebaseNotification.showLocalNotification(
+                        let _ = try await firebaseNotification.showLocalNotification(
                             title: "Check-in Interval Updated",
                             body: "Your check-in interval has been updated to \(timeFormatter.formatTimeIntervalWithFullUnits(interval)).",
                             userInfo: ["type": "intervalUpdate"]
                         )
+
+                        // Send success response
+                        await send(.updateCheckInIntervalSucceeded)
+
+                        // Notify delegate that check-in interval was updated
+                        await send(.delegate(.checkInIntervalUpdated(interval)))
+                    } catch {
+                        // Map the error to a user-facing error
+                        let userFacingError = UserFacingError.from(error)
+
+                        // Handle error directly in the effect
+                        await send(.updateCheckInIntervalFailed(userFacingError))
+
+                        // Notify delegate about the failure with the user-facing error
+                        await send(.delegate(.checkInIntervalUpdateFailed(userFacingError)))
+
+                        // Reload user data to revert changes if there was an error
+                        await send(.loadUserData)
                     }
-                    await send(.updateCheckInIntervalResponse(result))
                 }
 
-            case let .updateCheckInIntervalResponse(result):
+            case .updateCheckInIntervalSucceeded:
                 state.isLoading = false
+                return .none
 
-                switch result {
-                case .success:
-                    // Notify delegate that check-in interval was updated
-                    return .send(.delegate(.checkInIntervalUpdated(state.userData.checkInInterval)))
-
-                case let .failure(error):
-                    // Use AlertState for error handling
-                    state.alert = AlertState {
-                        TextState("Failed to Update Check-in Interval")
-                    } actions: {
-                        ButtonState(role: .cancel) {
-                            TextState("Dismiss")
-                        }
-                        ButtonState(action: .retry) {
-                            TextState("Retry")
-                        }
-                    } message: {
-                        TextState(error.localizedDescription)
-                    }
-                    // Reload user data to revert changes if there was an error
-                    return .send(.loadUserData)
-                }
+            case let .updateCheckInIntervalFailed(error):
+                state.isLoading = false
+                FirebaseLogger.user.error("Check-in interval update failed: \(error)")
+                return .none
 
             case .triggerManualAlert:
                 state.isLoading = true
@@ -598,41 +491,38 @@ struct UserFeature {
                 state.userData.manualAlertTimestamp = Date()
 
                 return .run { [firebaseUserClient, firebaseAuth] send in
-                    let result = await TaskResult {
-                        guard let userId = firebaseAuth.currentUserId() else {
-                            throw NSError(domain: "UserFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
-                        }
+                    do {
+                        // Get the authenticated user ID or throw if not available
+                        let userId = try await firebaseAuth.currentUserId()
 
                         // Trigger manual alert using the client
                         try await firebaseUserClient.triggerManualAlert(userId)
+
+                        // Send success response
+                        await send(.triggerManualAlertSucceeded)
+                    } catch {
+                        // Map the error to a user-facing error
+                        let userFacingError = UserFacingError.from(error)
+
+                        // Handle error directly in the effect
+                        await send(.triggerManualAlertFailed(userFacingError))
+
+                        // Notify delegate about the failure with the user-facing error
+                        await send(.delegate(.manualAlertTriggerFailed(userFacingError)))
+
+                        // Reload user data to revert changes if there was an error
+                        await send(.loadUserData)
                     }
-                    await send(.triggerManualAlertResponse(result))
                 }
 
-            case let .triggerManualAlertResponse(result):
+            case .triggerManualAlertSucceeded:
                 state.isLoading = false
+                return .none
 
-                switch result {
-                case .success:
-                    return .none
-
-                case let .failure(error):
-                    // Use AlertState for error handling
-                    state.alert = AlertState {
-                        TextState("Failed to Trigger Alert")
-                    } actions: {
-                        ButtonState(role: .cancel) {
-                            TextState("Dismiss")
-                        }
-                        ButtonState(action: .retry) {
-                            TextState("Retry")
-                        }
-                    } message: {
-                        TextState(error.localizedDescription)
-                    }
-                    // Reload user data to revert changes if there was an error
-                    return .send(.loadUserData)
-                }
+            case let .triggerManualAlertFailed(error):
+                state.isLoading = false
+                FirebaseLogger.user.error("Manual alert trigger failed: \(error)")
+                return .none
 
             case .clearManualAlert:
                 state.isLoading = true
@@ -642,41 +532,38 @@ struct UserFeature {
                 state.userData.manualAlertTimestamp = nil
 
                 return .run { [firebaseUserClient, firebaseAuth] send in
-                    let result = await TaskResult {
-                        guard let userId = firebaseAuth.currentUserId() else {
-                            throw NSError(domain: "UserFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
-                        }
+                    do {
+                        // Get the authenticated user ID or throw if not available
+                        let userId = try await firebaseAuth.currentUserId()
 
                         // Clear manual alert using the client
                         try await firebaseUserClient.clearManualAlert(userId)
+
+                        // Send success response
+                        await send(.clearManualAlertSucceeded)
+                    } catch {
+                        // Map the error to a user-facing error
+                        let userFacingError = UserFacingError.from(error)
+
+                        // Handle error directly in the effect
+                        await send(.clearManualAlertFailed(userFacingError))
+
+                        // Notify delegate about the failure with the user-facing error
+                        await send(.delegate(.manualAlertClearFailed(userFacingError)))
+
+                        // Reload user data to revert changes if there was an error
+                        await send(.loadUserData)
                     }
-                    await send(.clearManualAlertResponse(result))
                 }
 
-            case let .clearManualAlertResponse(result):
+            case .clearManualAlertSucceeded:
                 state.isLoading = false
+                return .none
 
-                switch result {
-                case .success:
-                    return .none
-
-                case let .failure(error):
-                    // Use AlertState for error handling
-                    state.alert = AlertState {
-                        TextState("Failed to Clear Alert")
-                    } actions: {
-                        ButtonState(role: .cancel) {
-                            TextState("Dismiss")
-                        }
-                        ButtonState(action: .retry) {
-                            TextState("Retry")
-                        }
-                    } message: {
-                        TextState(error.localizedDescription)
-                    }
-                    // Reload user data to revert changes if there was an error
-                    return .send(.loadUserData)
-                }
+            case let .clearManualAlertFailed(error):
+                state.isLoading = false
+                FirebaseLogger.user.error("Manual alert clear failed: \(error)")
+                return .none
 
             // MARK: - Child Feature Actions
 
@@ -690,10 +577,9 @@ struct UserFeature {
                 state.isLoading = true
 
                 return .run { [firebaseUserClient, firebaseAuth] send in
-                    let result = await TaskResult {
-                        guard let userId = firebaseAuth.currentUserId() else {
-                            throw NSError(domain: "UserFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
-                        }
+                    do {
+                        // Get the authenticated user ID or throw if not available
+                        let userId = try await firebaseAuth.currentUserId()
 
                         // Update phone number in Firestore
                         let fields: [String: Any] = [
@@ -702,12 +588,19 @@ struct UserFeature {
                         ]
 
                         try await firebaseUserClient.updateUserDocument(userId, fields)
-                    }
 
-                    // We don't need to send a response back to the profile feature
-                    // as it will get updated through the user data stream
-                    if case .failure(let error) = result {
-                        await send(.loadUserDataResponse(.failure(error)))
+                        // Load updated user data
+                        let userData = try await firebaseUserClient.getUserDocument(userId)
+                        await send(.loadUserDataResponse(userData))
+                    } catch {
+                        // Map the error to a user-facing error
+                        let userFacingError = UserFacingError.from(error)
+
+                        // Notify delegate about the failure with the user-facing error
+                        await send(.delegate(.phoneNumberUpdateFailed(userFacingError)))
+
+                        // Load user data to refresh the state
+                        await send(.loadUserData)
                     }
                 }
 
@@ -734,15 +627,7 @@ struct UserFeature {
                 // Other check-in actions are handled by the CheckInFeature
                 return .none
 
-            // MARK: - Error Handling
-
-            case .alert(.presented(.retry)):
-                state.alert = nil
-                return .send(.loadUserData)
-
-            case .alert(.dismiss):
-                state.alert = nil
-                return .none
+            // Error handling is now delegated to AppFeature
 
             // MARK: - Delegate Actions
 
@@ -756,17 +641,13 @@ struct UserFeature {
             }
         }
 
-        // Include child features using presents
-        .presents(\.profile, action: \.profile) {
+        // Include child features using ifLet
+        .ifLet(\.$profile, action: \.profile) {
             ProfileFeature()
         }
-
-        .presents(\.checkIn, action: \.checkInAction) {
+        .ifLet(\.$checkIn, action: \.checkInAction) {
             CheckInFeature()
         }
-
-        // Add alert presentation
-        .presents(\.alert, action: \.alert)
 
         ._printChanges()
     }

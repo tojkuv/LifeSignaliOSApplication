@@ -14,53 +14,49 @@ import UIKit
 @DependencyClient
 struct FirebaseAppClient: Sendable {
     /// Configure Firebase
-    var configure: @Sendable () -> Void = { }
+    var configure: @Sendable () -> Void
 
     /// Set up Firebase Messaging for push notifications
-    var setupMessaging: @Sendable () async -> Void = { }
+    var setupMessaging: @Sendable () async -> Void
 
     /// Handle open URL
-    var handleOpenURL: @Sendable (URL) -> Bool = { _ in false }
+    var handleOpenURL: @Sendable (URL) -> Bool
 
     /// Add auth state listener
-    var addAuthStateListener: @Sendable (@escaping (Auth, User?) -> Void) -> NSObjectProtocol = { _ in NSObject() }
+    var addAuthStateListener: @Sendable (@Sendable @escaping (Auth, User?) -> Void) -> NSObjectProtocol
 
     /// Remove auth state listener
-    var removeAuthStateListener: @Sendable (NSObjectProtocol) -> Void = { _ in }
+    var removeAuthStateListener: @Sendable (NSObjectProtocol) -> Void
 
     /// Get Firebase initialization status as a string
-    var getInitializationStatus: @Sendable () -> String = { "Firebase not initialized" }
+    var getInitializationStatus: @Sendable () -> String
 }
 
 extension FirebaseAppClient: DependencyKey {
     static let liveValue = Self(
         configure: {
             FirebaseLogger.app.debug("Configuring Firebase")
-            do {
-                if FirebaseApp.app() == nil {
-                    FirebaseApp.configure()
-                    FirebaseLogger.app.info("Firebase configured successfully")
-                } else {
-                    FirebaseLogger.app.debug("Firebase already configured")
-                }
+            // Remove the unnecessary do-catch block since no throwing operations are performed
+            if FirebaseApp.app() == nil {
+                FirebaseApp.configure()
+                FirebaseLogger.app.info("Firebase configured successfully")
+            } else {
+                FirebaseLogger.app.debug("Firebase already configured")
+            }
 
-                // Set up Firebase Functions
-                let _ = Functions.functions(region: "us-central1")
-                FirebaseLogger.app.debug("Firebase Functions initialized")
+            // Set up Firebase Functions
+            let _ = Functions.functions(region: "us-central1")
+            FirebaseLogger.app.debug("Firebase Functions initialized")
 
-                // Set up Firebase Messaging delegate
-                @Dependency(\.firebaseMessaging) var firebaseMessaging
-                firebaseMessaging.setDelegate()
-                FirebaseLogger.app.debug("Firebase Messaging delegate set")
+            // Set up Firebase Messaging delegate
+            @Dependency(\.firebaseMessaging) var firebaseMessaging
+            firebaseMessaging.setDelegate()
+            FirebaseLogger.app.debug("Firebase Messaging delegate set")
 
-                // Enable offline persistence
-                @Dependency(\.firebaseOfflineManager) var firebaseOfflineManager
-                Task {
-                    await firebaseOfflineManager.enableOfflinePersistence()
-                }
-            } catch {
-                FirebaseLogger.app.error("Failed to configure Firebase: \(error.localizedDescription)")
-                // We don't throw here because this is a fire-and-forget operation
+            // Enable offline persistence
+            @Dependency(\.firebaseOfflineManager) var firebaseOfflineManager
+            Task {
+                await firebaseOfflineManager.enableOfflinePersistence()
             }
         },
         setupMessaging: {
@@ -126,12 +122,12 @@ extension FirebaseAppClient: DependencyKey {
 
     /// A mock implementation that returns predefined values for testing
     static func mock(
-        configure: @escaping () -> Void = { },
-        setupMessaging: @escaping () async -> Void = { },
-        handleOpenURL: @escaping (URL) -> Bool = { _ in false },
-        addAuthStateListener: @escaping (@escaping (Auth, User?) -> Void) -> NSObjectProtocol = { _ in NSObject() },
-        removeAuthStateListener: @escaping (NSObjectProtocol) -> Void = { _ in },
-        getInitializationStatus: @escaping () -> String = { "Firebase mock initialized" }
+        configure: @Sendable @escaping () -> Void = { },
+        setupMessaging: @Sendable @escaping () async -> Void = { },
+        handleOpenURL: @Sendable @escaping (URL) -> Bool = { _ in false },
+        addAuthStateListener: @Sendable @escaping (@Sendable @escaping (Auth, User?) -> Void) -> NSObjectProtocol = { _ in NSObject() },
+        removeAuthStateListener: @Sendable @escaping (NSObjectProtocol) -> Void = { _ in },
+        getInitializationStatus: @Sendable @escaping () -> String = { "Firebase mock initialized" }
     ) -> Self {
         Self(
             configure: configure,

@@ -13,19 +13,19 @@ struct FirebaseSessionClient: Sendable {
     var getCurrentSessionId: @Sendable () -> String?
 
     /// Set the current session ID
-    var setCurrentSessionId: @Sendable (_ sessionId: String) -> Void
+    var setCurrentSessionId: @Sendable (String) -> Void
 
     /// Clear the current session ID
     var clearSessionId: @Sendable () -> Void
 
     /// Create a new session for a user
-    var createSession: @Sendable (_ userId: String) async throws -> String
+    var createSession: @Sendable (String) async throws -> String
 
     /// Validate a session for a user
-    var validateSession: @Sendable (_ userId: String, _ sessionId: String) async throws -> Bool
+    var validateSession: @Sendable (String, String) async throws -> Bool
 
     /// Stream session changes for a user
-    var streamSessionChanges: @Sendable (_ userId: String) -> AsyncStream<String?>
+    var streamSessionChanges: @Sendable (String) -> AsyncStream<String?>
 }
 
 // MARK: - Live Implementation
@@ -154,12 +154,12 @@ extension FirebaseSessionClient: DependencyKey {
 extension FirebaseSessionClient {
     /// A mock implementation that returns predefined values for testing
     static func mock(
-        getCurrentSessionId: @escaping () -> String? = { nil },
-        setCurrentSessionId: @escaping (_ sessionId: String) -> Void = { _ in },
-        clearSessionId: @escaping () -> Void = { },
-        createSession: @escaping (_ userId: String) async throws -> String = { _ in UUID().uuidString },
-        validateSession: @escaping (_ userId: String, _ sessionId: String) async throws -> Bool = { _, _ in true },
-        streamSessionChanges: @escaping (_ userId: String) -> AsyncStream<String?> = { _ in AsyncStream { _ in } }
+        getCurrentSessionId: @Sendable @escaping () -> String? = { nil },
+        setCurrentSessionId: @Sendable @escaping (String) -> Void = { _ in },
+        clearSessionId: @Sendable @escaping () -> Void = { },
+        createSession: @Sendable @escaping (String) async throws -> String = { _ in UUID().uuidString },
+        validateSession: @Sendable @escaping (String, String) async throws -> Bool = { _, _ in true },
+        streamSessionChanges: @Sendable @escaping (String) -> AsyncStream<String?> = { _ in AsyncStream { _ in } }
     ) -> Self {
         Self(
             getCurrentSessionId: getCurrentSessionId,
@@ -170,15 +170,17 @@ extension FirebaseSessionClient {
             streamSessionChanges: streamSessionChanges
         )
     }
+}
 
+extension FirebaseSessionClient: TestDependencyKey {
     /// A test implementation that fails with an unimplemented error
     static let testValue = Self(
-        getCurrentSessionId: XCTUnimplemented("\(Self.self).getCurrentSessionId", placeholder: nil),
-        setCurrentSessionId: XCTUnimplemented("\(Self.self).setCurrentSessionId"),
-        clearSessionId: XCTUnimplemented("\(Self.self).clearSessionId"),
-        createSession: XCTUnimplemented("\(Self.self).createSession", placeholder: { _ in "" }),
-        validateSession: XCTUnimplemented("\(Self.self).validateSession", placeholder: { _, _ in false }),
-        streamSessionChanges: XCTUnimplemented("\(Self.self).streamSessionChanges", placeholder: { _ in AsyncStream { _ in } })
+        getCurrentSessionId: unimplemented("\(Self.self).getCurrentSessionId", placeholder: nil),
+        setCurrentSessionId: unimplemented("\(Self.self).setCurrentSessionId"),
+        clearSessionId: unimplemented("\(Self.self).clearSessionId"),
+        createSession: unimplemented("\(Self.self).createSession", placeholder: { _ in "" }),
+        validateSession: unimplemented("\(Self.self).validateSession", placeholder: { _, _ in false }),
+        streamSessionChanges: unimplemented("\(Self.self).streamSessionChanges", placeholder: { _ in AsyncStream { _ in } })
     )
 }
 

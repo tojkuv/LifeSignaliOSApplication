@@ -91,7 +91,7 @@ struct AddContactFeature {
                 return .run { [firebaseContactsClient, qrCode = state.qrCode.code] send in
                     guard !qrCode.isEmpty else {
                         await send(.lookupUserByQRCodeResponse(.failure(
-                            NSError(domain: "AddContactFeature", code: 400, userInfo: [NSLocalizedDescriptionKey: "QR code is empty"])
+                            FirebaseError.invalidData
                         )))
                         return
                     }
@@ -142,14 +142,9 @@ struct AddContactFeature {
                 state.isLoading = true
 
                 return .run { [firebaseContactsClient, firebaseAuth, state] send in
-                    guard let userId = firebaseAuth.currentUserId() else {
-                        await send(.addContactResponse(.failure(
-                            NSError(domain: "AddContactFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
-                        )))
-                        return
-                    }
-
                     do {
+                        let userId = try await firebaseAuth.currentUserId()
+
                         try await firebaseContactsClient.addContactRelation(
                             userId: userId,
                             contactId: state.id,
@@ -159,7 +154,8 @@ struct AddContactFeature {
 
                         await send(.addContactResponse(.success(true)))
                     } catch {
-                        await send(.addContactResponse(.failure(error)))
+                        let userFacingError = UserFacingError.from(error)
+                        await send(.addContactResponse(.failure(userFacingError)))
                     }
                 }
 

@@ -23,7 +23,7 @@ struct ContactsFeature {
 
         // MARK: - Status
         var isLoading: Bool = false
-        var error: Error? = nil
+        var error: UserFacingError? = nil
         var isStreamActive: Bool = false
 
         // MARK: - Computed Properties
@@ -47,7 +47,7 @@ struct ContactsFeature {
         init(
             contacts: IdentifiedArrayOf<ContactData> = [],
             isLoading: Bool = false,
-            error: Error? = nil,
+            error: UserFacingError? = nil,
             isStreamActive: Bool = false
         ) {
             self.contacts = contacts
@@ -63,9 +63,10 @@ struct ContactsFeature {
         case loadContacts
         case loadContactsResponse(TaskResult<[ContactData]>)
         case startContactsStream
-        case contactsStreamResponse(TaskResult<[ContactData]>)
+        case contactsUpdated([ContactData])
+        case contactsStreamFailed(Error)
         case stopContactsStream
-        case setError(Error?)
+        case setError(UserFacingError?)
         case setLoading(Bool)
 
         // MARK: - Contact Management
@@ -90,7 +91,7 @@ struct ContactsFeature {
         /// Actions that will be delegated to parent features
         enum DelegateAction: Equatable, Sendable {
             case contactsUpdated
-            case contactsLoadFailed(Error)
+            case contactsLoadFailed(UserFacingError)
         }
     }
 
@@ -185,17 +186,15 @@ struct ContactsFeature {
                 state.error = nil
 
                 return .run { [firebaseContactsClient, firebaseAuth] send in
-                    guard let userId = firebaseAuth.currentUserId() else {
-                        let error = NSError(domain: "ContactsFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
-                        await send(.loadContactsResponse(.failure(error)))
-                        return
-                    }
+                    do {
+                        let userId = try await firebaseAuth.currentUserId()
 
-                    let result = await TaskResult {
-                        try await firebaseContactsClient.getContacts(userId)
+                        let contacts = try await firebaseContactsClient.getContacts(userId)
+                        await send(.loadContactsResponse(.success(contacts)))
+                    } catch {
+                        let userFacingError = UserFacingError.from(error)
+                        await send(.loadContactsResponse(.failure(userFacingError)))
                     }
-
-                    await send(.loadContactsResponse(result))
                 }
 
             case let .loadContactsResponse(result):
@@ -218,55 +217,37 @@ struct ContactsFeature {
                 }
 
             case .startContactsStream:
-                // Only start the stream if it's not already active
-                guard !state.isStreamActive else { return .none }
-
+                // This action is now handled by the AppFeature
+                // Just mark the stream as active
                 state.isStreamActive = true
+                return .none
 
-                return .run { [firebaseContactsClient, firebaseAuth, self] send in
-                    guard let userId = firebaseAuth.currentUserId() else {
-                        let error = NSError(domain: "ContactsFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
-                        await send(.setError(error))
-                        await send(.delegate(.contactsLoadFailed(error)))
-                        return
-                    }
+            case let .contactsUpdated(contacts):
+                // Format time strings for each contact
+                let formattedContacts = formatContactTimeStrings(contacts)
+                state.contacts = IdentifiedArray(uniqueElements: formattedContacts)
 
-                    // Start streaming contacts updates
-                    for await result in firebaseContactsClient.streamContacts(userId) {
-                        await send(.contactsStreamResponse(result))
-                    }
+                // Notify delegate that contacts were updated
+                return .send(.delegate(.contactsUpdated))
 
-                    // If we get here, the stream has ended
-                    await send(.binding(.set(\.$isStreamActive, false)))
+            case let .contactsStreamFailed(error):
+                // Only update error state for persistent errors
+                if let nsError = error as NSError?,
+                   nsError.domain != FirestoreErrorDomain ||
+                   nsError.code != FirestoreErrorCode.unavailable.rawValue {
+                    let userFacingError = UserFacingError.from(error)
+                    state.error = userFacingError
+
+                    // Notify delegate that contacts loading failed
+                    return .send(.delegate(.contactsLoadFailed(userFacingError)))
                 }
-                .cancellable(id: CancelID.contactsStream)
-
-            case let .contactsStreamResponse(result):
-                switch result {
-                case let .success(contacts):
-                    // Format time strings for each contact
-                    let formattedContacts = formatContactTimeStrings(contacts)
-                    state.contacts = IdentifiedArray(uniqueElements: formattedContacts)
-
-                    // Notify delegate that contacts were updated
-                    return .send(.delegate(.contactsUpdated))
-
-                case let .failure(error):
-                    // Only update error state for persistent errors
-                    if let nsError = error as NSError?,
-                       nsError.domain != FirestoreErrorDomain ||
-                       nsError.code != FirestoreErrorCode.unavailable.rawValue {
-                        state.error = error
-
-                        // Notify delegate that contacts loading failed
-                        return .send(.delegate(.contactsLoadFailed(error)))
-                    }
-                    return .none
-                }
+                return .none
 
             case .stopContactsStream:
+                // This action is now handled by the AppFeature
+                // Just mark the stream as inactive
                 state.isStreamActive = false
-                return .cancel(id: CancelID.contactsStream)
+                return .none
 
             case let .setError(error):
                 state.error = error
@@ -288,13 +269,9 @@ struct ContactsFeature {
                 state.isLoading = true
 
                 return .run { [firebaseContactsClient, firebaseAuth] send in
-                    guard let userId = firebaseAuth.currentUserId() else {
-                        let error = NSError(domain: "ContactsFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
-                        await send(.updateContactRolesResponse(.failure(error)))
-                        return
-                    }
+                    do {
+                        let userId = try await firebaseAuth.currentUserId()
 
-                    let result = await TaskResult {
                         // Call the Firebase function to update the contact roles
                         try await firebaseContactsClient.updateContact(
                             userId: userId,
@@ -304,10 +281,12 @@ struct ContactsFeature {
                                 FirestoreConstants.ContactFields.isDependent: isDependent
                             ]
                         )
-                        return true
-                    }
 
-                    await send(.updateContactRolesResponse(result))
+                        await send(.updateContactRolesResponse(.success(true)))
+                    } catch {
+                        let userFacingError = UserFacingError.from(error)
+                        await send(.updateContactRolesResponse(.failure(userFacingError)))
+                    }
                 }
 
             case let .updateContactRolesResponse(result):
@@ -334,18 +313,15 @@ struct ContactsFeature {
                 state.isLoading = true
 
                 return .run { [firebaseContactsClient, firebaseAuth] send in
-                    guard let userId = firebaseAuth.currentUserId() else {
-                        let error = NSError(domain: "ContactsFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
-                        await send(.deleteContactResponse(.failure(error)))
-                        return
-                    }
+                    do {
+                        let userId = try await firebaseAuth.currentUserId()
 
-                    let result = await TaskResult {
                         try await firebaseContactsClient.deleteContact(userId: userId, contactId: id)
-                        return true
+                        await send(.deleteContactResponse(.success(true)))
+                    } catch {
+                        let userFacingError = UserFacingError.from(error)
+                        await send(.deleteContactResponse(.failure(userFacingError)))
                     }
-
-                    await send(.deleteContactResponse(result))
                 }
 
             case let .deleteContactResponse(result):
@@ -381,13 +357,9 @@ struct ContactsFeature {
                 state.isLoading = true
 
                 return .run { [firebaseAuth] send in
-                    guard let userId = firebaseAuth.currentUserId() else {
-                        let error = NSError(domain: "ContactsFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
-                        await send(.pingDependentResponse(.failure(error)))
-                        return
-                    }
+                    do {
+                        _ = try await firebaseAuth.currentUserId()
 
-                    let result = await TaskResult {
                         // Call the Firebase function to ping the dependent
                         let data: [String: Any] = [
                             "dependentId": id
@@ -400,10 +372,11 @@ struct ContactsFeature {
                             throw FirebaseError.invalidData
                         }
 
-                        return true
+                        await send(.pingDependentResponse(.success(true)))
+                    } catch {
+                        let userFacingError = UserFacingError.from(error)
+                        await send(.pingDependentResponse(.failure(userFacingError)))
                     }
-
-                    await send(.pingDependentResponse(result))
                 }
 
             case let .pingDependentResponse(result):
@@ -435,13 +408,9 @@ struct ContactsFeature {
                 state.isLoading = true
 
                 return .run { [firebaseAuth] send in
-                    guard let userId = firebaseAuth.currentUserId() else {
-                        let error = NSError(domain: "ContactsFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
-                        await send(.clearPingResponse(.failure(error)))
-                        return
-                    }
+                    do {
+                        let userId = try await firebaseAuth.currentUserId()
 
-                    let result = await TaskResult {
                         // Call the Firebase function to clear the ping
                         let data: [String: Any] = [
                             "userId": userId,
@@ -455,10 +424,11 @@ struct ContactsFeature {
                             throw FirebaseError.invalidData
                         }
 
-                        return true
+                        await send(.clearPingResponse(.success(true)))
+                    } catch {
+                        let userFacingError = UserFacingError.from(error)
+                        await send(.clearPingResponse(.failure(userFacingError)))
                     }
-
-                    await send(.clearPingResponse(result))
                 }
 
             case let .clearPingResponse(result):
@@ -490,13 +460,9 @@ struct ContactsFeature {
                 state.isLoading = true
 
                 return .run { [firebaseAuth] send in
-                    guard let userId = firebaseAuth.currentUserId() else {
-                        let error = NSError(domain: "ContactsFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
-                        await send(.respondToPingResponse(.failure(error)))
-                        return
-                    }
+                    do {
+                        _ = try await firebaseAuth.currentUserId()
 
-                    let result = await TaskResult {
                         // Call the Firebase function to respond to the ping
                         let data: [String: Any] = [
                             "responderId": id
@@ -509,10 +475,11 @@ struct ContactsFeature {
                             throw FirebaseError.invalidData
                         }
 
-                        return true
+                        await send(.respondToPingResponse(.success(true)))
+                    } catch {
+                        let userFacingError = UserFacingError.from(error)
+                        await send(.respondToPingResponse(.failure(userFacingError)))
                     }
-
-                    await send(.respondToPingResponse(result))
                 }
 
             case let .respondToPingResponse(result):
@@ -544,13 +511,9 @@ struct ContactsFeature {
                 state.isLoading = true
 
                 return .run { [firebaseAuth] send in
-                    guard let userId = firebaseAuth.currentUserId() else {
-                        let error = NSError(domain: "ContactsFeature", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
-                        await send(.respondToAllPingsResponse(.failure(error)))
-                        return
-                    }
+                    do {
+                        _ = try await firebaseAuth.currentUserId()
 
-                    let result = await TaskResult {
                         // Call the Firebase function to respond to all pings
                         let functions = Functions.functions()
                         let result = try await functions.httpsCallable("respondToAllPings").call(nil)
@@ -559,10 +522,11 @@ struct ContactsFeature {
                             throw FirebaseError.invalidData
                         }
 
-                        return true
+                        await send(.respondToAllPingsResponse(.success(true)))
+                    } catch {
+                        let userFacingError = UserFacingError.from(error)
+                        await send(.respondToAllPingsResponse(.failure(userFacingError)))
                     }
-
-                    await send(.respondToAllPingsResponse(result))
                 }
 
             case let .respondToAllPingsResponse(result):

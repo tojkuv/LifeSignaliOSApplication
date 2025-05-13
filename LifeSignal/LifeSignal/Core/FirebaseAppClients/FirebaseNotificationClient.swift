@@ -12,37 +12,37 @@ import UIKit
 @DependencyClient
 struct FirebaseNotificationClient: Sendable {
     /// Register for remote notifications
-    var registerForRemoteNotifications: @Sendable () async -> Void = { }
+    var registerForRemoteNotifications: @Sendable () async -> Void
 
     /// Handle device token registration
-    var handleDeviceToken: @Sendable (Data) async -> Void = { _ in }
+    var handleDeviceToken: @Sendable (Data) async -> Void
 
     /// Handle remote notification
-    var handleRemoteNotification: @Sendable ([AnyHashable: Any]) async -> UIBackgroundFetchResult = { _ in .noData }
+    var handleRemoteNotification: @Sendable ([AnyHashable: Any]) async -> UIBackgroundFetchResult
 
     /// Request notification authorization
-    var requestAuthorization: @Sendable () async throws -> Bool = { false }
+    var requestAuthorization: @Sendable () async throws -> Bool
 
     /// Get current authorization status
-    var getAuthorizationStatus: @Sendable () async -> UNAuthorizationStatus = { .notDetermined }
+    var getAuthorizationStatus: @Sendable () async -> UNAuthorizationStatus
 
     /// Set notification delegate
-    var setNotificationDelegate: @Sendable (UNUserNotificationCenterDelegate) -> Void = { _ in }
+    var setNotificationDelegate: @Sendable (UNUserNotificationCenterDelegate) -> Void
 
     /// Show a local notification
-    var showLocalNotification: @Sendable (_ title: String, _ body: String, _ userInfo: [String: Any]) async throws -> Bool = { _, _, _ in false }
+    var showLocalNotification: @Sendable (String, String, [String: Any]) async throws -> Bool
 
     /// Schedule a check-in reminder notification
-    var scheduleCheckInReminder: @Sendable (_ expirationDate: Date, _ minutesBefore: Int) async throws -> String = { _, _ in "" }
+    var scheduleCheckInReminder: @Sendable (Date, Int) async throws -> String
 
     /// Cancel scheduled notifications
-    var cancelScheduledNotifications: @Sendable (_ identifiers: [String]) async -> Void = { _ in }
+    var cancelScheduledNotifications: @Sendable ([String]) async -> Void
 
     /// Send a manual alert notification
-    var sendManualAlertNotification: @Sendable (_ userName: String) async throws -> Bool = { _ in false }
+    var sendManualAlertNotification: @Sendable (String) async throws -> Bool
 
     /// Clear a manual alert notification
-    var clearManualAlertNotification: @Sendable (_ userName: String) async throws -> Bool = { _ in false }
+    var clearManualAlertNotification: @Sendable (String) async throws -> Bool
 }
 
 extension FirebaseNotificationClient: DependencyKey {
